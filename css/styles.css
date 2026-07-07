@@ -163,6 +163,13 @@ input {
   border-color: rgba(245, 158, 11, 0.3);
 }
 
+/* 좁은 화면: 탭이 잘려 숨겨지지 않도록 줄바꿈 + 컴팩트 사이즈 */
+@media (max-width: 520px) {
+  .mode-switch { flex-wrap: wrap; justify-content: center; overflow-x: visible; }
+  .mode-btn { padding: 0.45rem 0.75rem; font-size: 0.8rem; gap: 0.35rem; }
+  .mode-btn .icon { width: 0.85rem; height: 0.85rem; }
+}
+
 .icon-btn {
   color: var(--slate-500);
   padding: 0.5rem;

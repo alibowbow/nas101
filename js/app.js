@@ -65,14 +65,19 @@
   }
 
   /* ---------- 로컬 저장소 ---------- */
+  // localStorage가 차단된 환경(프라이빗 모드, 스토리지 정책)에서도
+  // 세션 동안은 동작하도록 메모리 백업을 함께 사용한다.
+  var memStore = {};
   var store = {
     get: function (key, fallback) {
       try {
         var v = localStorage.getItem('nas101.' + key);
-        return v == null ? fallback : JSON.parse(v);
-      } catch (e) { return fallback; }
+        if (v != null) return JSON.parse(v);
+      } catch (e) { /* 차단/파싱 실패 → 메모리 백업 사용 */ }
+      return Object.prototype.hasOwnProperty.call(memStore, key) ? memStore[key] : fallback;
     },
     set: function (key, value) {
+      memStore[key] = value;
       try { localStorage.setItem('nas101.' + key, JSON.stringify(value)); } catch (e) { /* private mode 등 */ }
     }
   };
@@ -152,13 +157,46 @@
     if (state.mode === 'quiz') resetQuizQuestion();
     render();
   }
-  function next() { goTo(state.idx < state.deck.length - 1 ? state.idx + 1 : 0); }
-  function prev() { goTo(state.idx > 0 ? state.idx - 1 : state.deck.length - 1); }
+
+  // 복습 모드에서 이동 시 해결된 카드를 deck에서 걷어내고, 모두 해결했으면 복습 모드를 종료한다.
+  function advanceReview(dir) {
+    if (state.wrongIds.length === 0) {
+      state.reviewMode = false;
+      rebuildDeck(false);
+      render();
+      toast('오답노트를 모두 해결했습니다! 전체 카드로 돌아갑니다.');
+      return;
+    }
+    var pool = CARDS.filter(function (c) { return state.wrongIds.indexOf(c.id) !== -1; });
+    var curId = state.deck[state.idx] && state.deck[state.idx].id;
+    var pos = -1;
+    for (var i = 0; i < pool.length; i++) if (pool[i].id === curId) { pos = i; break; }
+    state.deck = pool;
+    var nextIdx;
+    if (pos === -1) {
+      // 현재 카드가 방금 해결되어 pool에서 빠진 경우: 같은 자리(다음 카드)로
+      nextIdx = dir > 0 ? Math.min(state.idx, pool.length - 1) : (state.idx - 1 + pool.length) % pool.length;
+      if (nextIdx < 0 || nextIdx >= pool.length) nextIdx = 0;
+    } else {
+      nextIdx = (pos + dir + pool.length) % pool.length;
+    }
+    goTo(nextIdx);
+  }
+
+  function next() {
+    if (state.mode === 'quiz' && state.reviewMode) { advanceReview(1); return; }
+    goTo(state.idx < state.deck.length - 1 ? state.idx + 1 : 0);
+  }
+  function prev() {
+    if (state.mode === 'quiz' && state.reviewMode) { advanceReview(-1); return; }
+    goTo(state.idx > 0 ? state.idx - 1 : state.deck.length - 1);
+  }
 
   function currentPool() {
     if (state.reviewMode) {
       var wrongs = CARDS.filter(function (c) { return state.wrongIds.indexOf(c.id) !== -1; });
-      return wrongs.length ? wrongs : CARDS.slice();
+      if (wrongs.length) return wrongs;
+      state.reviewMode = false; // 오답이 없으면 복습 모드도 함께 해제 (플래그·UI·deck 불일치 방지)
     }
     return CARDS.slice();
   }
@@ -226,15 +264,27 @@
   /* ---------- Gemini AI 해설 ---------- */
   function getApiKey() { return store.get('apiKey', ''); }
 
+  // 모달을 닫았다가 다른 카드로 다시 여는 사이 늦게 도착한 이전 응답이
+  // 새 모달 상태를 덮어쓰지 않도록 요청 세대 번호로 구분한다.
+  var aiRequestSeq = 0;
+
+  var modalOpener = null; // 모달을 연 요소 (닫을 때 포커스 복원)
+
   function openAiModal(card) {
+    modalOpener = document.activeElement;
     state.ai = { open: true, loading: false, error: null, text: null, card: card, needKey: !getApiKey() };
     renderModal();
     if (!state.ai.needKey) fetchAiExplanation(card);
   }
 
   function closeAiModal() {
+    aiRequestSeq += 1; // 진행 중이던 요청 결과는 무시
     state.ai.open = false;
     renderModal();
+    if (modalOpener && document.contains(modalOpener) && typeof modalOpener.focus === 'function') {
+      modalOpener.focus();
+    }
+    modalOpener = null;
   }
 
   function fetchAiExplanation(card) {
@@ -244,6 +294,7 @@
       renderModal();
       return;
     }
+    var reqId = ++aiRequestSeq;
     state.ai.loading = true;
     state.ai.error = null;
     state.ai.needKey = false;
@@ -278,16 +329,20 @@
         return res.json();
       })
       .then(function (data) {
+        if (reqId !== aiRequestSeq) return; // stale 응답 무시
         var text = data && data.candidates && data.candidates[0] &&
           data.candidates[0].content && data.candidates[0].content.parts &&
           data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text;
         if (!text) throw new Error('No response content');
         state.ai.text = text;
+        state.ai.error = null;
       })
       .catch(function (err) {
+        if (reqId !== aiRequestSeq) return; // stale 에러 무시
         state.ai.error = '전문가 AI 연결에 실패했습니다. API 키가 유효한지 확인하거나 잠시 후 다시 시도해주세요. (' + err.message + ')';
       })
       .then(function () {
+        if (reqId !== aiRequestSeq) return;
         state.ai.loading = false;
         renderModal();
       });
@@ -303,18 +358,26 @@
 
   /* ---------- 렌더링 ---------- */
   function render() {
+    // innerHTML 전체 교체로 키보드 포커스가 유실되지 않도록 id 기준으로 복원
+    var focusId = document.activeElement && document.activeElement.id;
     renderNav();
     if (state.mode === 'card') renderCardMode();
     else if (state.mode === 'quiz') renderQuizMode();
     else if (state.mode === 'list') renderListMode();
     else renderGlossaryMode();
     renderFooter();
+    if (focusId) {
+      var f = document.getElementById(focusId);
+      if (f && typeof f.focus === 'function') f.focus();
+    }
   }
 
   function renderNav() {
     var buttons = els.modeSwitch.querySelectorAll('.mode-btn');
     buttons.forEach(function (btn) {
-      btn.classList.toggle('active', btn.dataset.mode === state.mode);
+      var active = btn.dataset.mode === state.mode;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
   }
 
@@ -340,16 +403,24 @@
           '<div class="card-face card-back">' +
             '<div class="card-head"><span class="insight-tag">Insight</span></div>' +
             '<div class="card-body"><p class="card-a">' + esc(card.a) + '</p></div>' +
-            '<div class="card-foot"><button class="ai-btn" id="ai-btn">' + icon('sparkles') + ' 전문가 해설 보기</button></div>' +
+            '<div class="card-foot"><button class="ai-btn" id="ai-btn"' + (state.flipped ? '' : ' tabindex="-1"') + '>' + icon('sparkles') + ' 전문가 해설 보기</button></div>' +
           '</div>' +
         '</div>' +
       '</div>';
 
-    document.getElementById('scene').addEventListener('click', function () {
+    var scene = document.getElementById('scene');
+    var aiBtn = document.getElementById('ai-btn');
+    var flip = function () {
       state.flipped = !state.flipped;
       document.getElementById('card3d').classList.toggle('flipped', state.flipped);
+      // 시각적으로 숨겨진 면의 버튼이 Tab으로 잡히지 않도록
+      aiBtn.tabIndex = state.flipped ? 0 : -1;
+    };
+    scene.addEventListener('click', flip);
+    scene.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); flip(); }
     });
-    document.getElementById('ai-btn').addEventListener('click', function (e) {
+    aiBtn.addEventListener('click', function (e) {
       e.stopPropagation();
       openAiModal(card);
     });
@@ -638,9 +709,29 @@
       '</div>';
 
     document.getElementById('modal-close').addEventListener('click', closeAiModal);
-    document.getElementById('modal-overlay').addEventListener('click', function (e) {
+    var overlay = document.getElementById('modal-overlay');
+    overlay.addEventListener('click', function (e) {
       if (e.target === this) closeAiModal();
     });
+
+    // 포커스 트랩: Tab이 모달 밖으로 나가지 않도록 순환
+    var modalEl = overlay.querySelector('.modal');
+    modalEl.addEventListener('keydown', function (e) {
+      if (e.key !== 'Tab') return;
+      var focusables = modalEl.querySelectorAll('button, input, a[href]');
+      if (!focusables.length) return;
+      var first = focusables[0];
+      var last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first.focus();
+      }
+    });
+
+    // 초기 포커스: 키 입력창이 있으면 거기로, 없으면 닫기 버튼으로
+    var keyInputEl = document.getElementById('api-key-input');
+    if (!keyInputEl) document.getElementById('modal-close').focus();
 
     var saveBtn = document.getElementById('api-key-save');
     if (saveBtn) {
@@ -688,6 +779,8 @@
       state.flipped = !state.flipped;
       var c3d = document.getElementById('card3d');
       if (c3d) c3d.classList.toggle('flipped', state.flipped);
+      var aiB = document.getElementById('ai-btn');
+      if (aiB) aiB.tabIndex = state.flipped ? 0 : -1;
     } else if (e.code === 'ArrowRight') {
       e.preventDefault();
       next();
