@@ -38,7 +38,18 @@
     globe: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
     repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
     settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
-    lightbulb: '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>'
+    lightbulb: '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>',
+    library: '<path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/>',
+    calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+    shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1 1 0 0 1 1.52 0C14.5 3.8 17 5 19 5a1 1 0 0 1 1 1z"/>',
+    history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+    clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'
+  };
+
+  /* 레슨 키 → 아이콘 매핑 */
+  var LESSON_ICONS = {
+    fed: 'landmark', calendar: 'calendar', earnings: 'barChart',
+    cycle: 'activity', history: 'history', risk: 'shield'
   };
 
   function icon(name, cls) {
@@ -93,6 +104,8 @@
     searchQuery: '',
     catFilter: 'All',
     glossQuery: '',
+    lessonKey: null,              // 학습 모드: null이면 목록, 값이 있으면 해당 레슨 상세
+    readLessons: store.get('readLessons', []),
     lifetime: store.get('stats', { attempted: 0, correct: 0 }),
     wrongIds: store.get('wrongIds', []),
     ai: { open: false, loading: false, error: null, text: null, card: null, needKey: false }
@@ -227,6 +240,7 @@
     state.flipped = false;
     state.searchQuery = '';
     state.glossQuery = '';
+    state.lessonKey = null;
     if (mode !== 'quiz') state.reviewMode = false;
     rebuildDeck(false);
     render();
@@ -376,6 +390,7 @@
     if (state.mode === 'card') renderCardMode();
     else if (state.mode === 'quiz') renderQuizMode();
     else if (state.mode === 'list') renderListMode();
+    else if (state.mode === 'study') renderStudyMode();
     else renderGlossaryMode();
     renderFooter();
     syncChromeHeights();
@@ -576,6 +591,119 @@
       : '<div class="empty-state">' + icon('search') + '<p>일치하는 인사이트가 없습니다.</p></div>';
     var listEl = els.content.querySelector('.list-items');
     if (listEl) listEl.innerHTML = itemsHtml;
+  }
+
+  /* ---------- 학습 모드 (챕터형 레슨) ---------- */
+  function markLessonRead(key, read) {
+    var pos = state.readLessons.indexOf(key);
+    if (read && pos === -1) state.readLessons.push(key);
+    if (!read && pos !== -1) state.readLessons.splice(pos, 1);
+    store.set('readLessons', state.readLessons);
+  }
+
+  function renderStudyMode() {
+    els.main.classList.add('scroll-top');
+    if (!LESSONS.length) {
+      els.content.innerHTML = '<div class="empty-state">' + icon('library') + '<p>레슨을 준비 중입니다.</p></div>';
+      return;
+    }
+    if (state.lessonKey) renderLessonDetail();
+    else renderLessonList();
+  }
+
+  function renderLessonList() {
+    var readCount = LESSONS.filter(function (l) { return state.readLessons.indexOf(l.key) !== -1; }).length;
+    var itemsHtml = LESSONS.map(function (l, i) {
+      var read = state.readLessons.indexOf(l.key) !== -1;
+      return '<button class="lesson-card' + (read ? ' read' : '') + '" data-lesson="' + esc(l.key) + '">' +
+        '<div class="lesson-icon">' + icon(LESSON_ICONS[l.key] || 'bookOpen') + '</div>' +
+        '<div class="lesson-info">' +
+          '<div class="lesson-title-row"><span class="lesson-no">CH.' + (i + 1) + '</span>' +
+            (read ? '<span class="lesson-read-badge">' + icon('checkCircle') + ' 읽음</span>' : '') + '</div>' +
+          '<h3>' + esc(l.title) + '</h3>' +
+          '<p>' + esc(l.tagline) + '</p>' +
+          '<span class="lesson-minutes">' + icon('clock') + ' 약 ' + l.minutes + '분</span>' +
+        '</div>' +
+        '<span class="lesson-arrow">' + icon('chevronRight') + '</span>' +
+      '</button>';
+    }).join('');
+
+    els.content.innerHTML =
+      '<div class="list-wrap">' +
+        '<div class="study-head">' +
+          '<div><h2>매크로 스쿨</h2><p>시장을 움직이는 원리를 챕터별로 배웁니다</p></div>' +
+          '<div class="study-progress">' + readCount + ' / ' + LESSONS.length + ' 완독</div>' +
+        '</div>' +
+        '<div class="lesson-list">' + itemsHtml + '</div>' +
+      '</div>';
+
+    els.content.querySelectorAll('.lesson-card').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        state.lessonKey = btn.dataset.lesson;
+        render();
+        window.scrollTo(0, 0);
+      });
+    });
+  }
+
+  function renderLessonDetail() {
+    var idx = -1;
+    for (var i = 0; i < LESSONS.length; i++) if (LESSONS[i].key === state.lessonKey) { idx = i; break; }
+    if (idx === -1) { state.lessonKey = null; renderLessonList(); return; }
+    var l = LESSONS[idx];
+    var read = state.readLessons.indexOf(l.key) !== -1;
+
+    var sectionsHtml = l.sections.map(function (s, si) {
+      var pointsHtml = (s.points && s.points.length)
+        ? '<ul class="lesson-points">' + s.points.map(function (p) {
+            return '<li>' + icon('chevronRight') + '<span>' + esc(p) + '</span></li>';
+          }).join('') + '</ul>'
+        : '';
+      return '<section class="lesson-section">' +
+        '<h3><span>' + (si + 1) + '</span> ' + esc(s.h) + '</h3>' +
+        '<p>' + esc(s.body) + '</p>' + pointsHtml +
+      '</section>';
+    }).join('');
+
+    var prevL = idx > 0 ? LESSONS[idx - 1] : null;
+    var nextL = idx < LESSONS.length - 1 ? LESSONS[idx + 1] : null;
+
+    els.content.innerHTML =
+      '<div class="list-wrap lesson-detail">' +
+        '<button class="lesson-back" id="lesson-back">' + icon('chevronLeft') + ' 목록으로</button>' +
+        '<header class="lesson-head">' +
+          '<span class="lesson-no">CHAPTER ' + (idx + 1) + '</span>' +
+          '<h2>' + esc(l.title) + '</h2>' +
+          '<p>' + esc(l.tagline) + ' · ' + icon('clock') + ' 약 ' + l.minutes + '분</p>' +
+        '</header>' +
+        sectionsHtml +
+        '<div class="lesson-takeaway">' + icon('lightbulb') + '<div><h4>핵심 한 줄</h4><p>' + esc(l.takeaway) + '</p></div></div>' +
+        '<button class="lesson-done' + (read ? ' done' : '') + '" id="lesson-done">' +
+          icon('checkCircle') + (read ? ' 읽음 완료 (취소하려면 클릭)' : ' 읽음으로 표시') + '</button>' +
+        '<div class="lesson-nav">' +
+          (prevL ? '<button class="lesson-nav-btn" data-lesson="' + esc(prevL.key) + '">' + icon('chevronLeft') + '<span>' + esc(prevL.title) + '</span></button>' : '<span></span>') +
+          (nextL ? '<button class="lesson-nav-btn next" data-lesson="' + esc(nextL.key) + '"><span>' + esc(nextL.title) + '</span>' + icon('chevronRight') + '</button>' : '<span></span>') +
+        '</div>' +
+      '</div>';
+
+    document.getElementById('lesson-back').addEventListener('click', function () {
+      state.lessonKey = null;
+      render();
+      window.scrollTo(0, 0);
+    });
+    document.getElementById('lesson-done').addEventListener('click', function () {
+      var nowRead = state.readLessons.indexOf(l.key) === -1;
+      markLessonRead(l.key, nowRead);
+      render();
+      if (nowRead) toast('챕터를 완독했습니다!');
+    });
+    els.content.querySelectorAll('.lesson-nav-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        state.lessonKey = btn.dataset.lesson;
+        render();
+        window.scrollTo(0, 0);
+      });
+    });
   }
 
   function renderGlossaryMode() {
@@ -785,6 +913,14 @@
     }
     var tag = (document.activeElement && document.activeElement.tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    if (state.mode === 'study') {
+      if (e.key === 'Escape' && state.lessonKey) {
+        state.lessonKey = null;
+        render();
+        window.scrollTo(0, 0);
+      }
+      return;
+    }
     if (state.mode === 'list' || state.mode === 'glossary') return;
 
     if (state.mode === 'card' && e.code === 'Space') {
