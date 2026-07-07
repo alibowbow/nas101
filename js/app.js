@@ -108,6 +108,7 @@
     glossQuery: '',
     lessonKey: null,              // 학습 모드: null이면 목록, 값이 있으면 해당 레슨 상세
     readLessons: store.get('readLessons', []),
+    chapterQuiz: null,            // {key, title} — 챕터 확인 퀴즈 진행 중이면 설정
     lifetime: store.get('stats', { attempted: 0, correct: 0 }),
     wrongIds: store.get('wrongIds', []),
     ai: { open: false, loading: false, error: null, text: null, card: null, needKey: false }
@@ -211,6 +212,10 @@
   }
 
   function next() {
+    if (state.mode === 'quiz' && state.chapterQuiz && state.idx === state.deck.length - 1) {
+      finishChapterQuiz();
+      return;
+    }
     if (state.mode === 'quiz' && state.reviewMode) { advanceReview(1); return; }
     goTo(state.idx < state.deck.length - 1 ? state.idx + 1 : 0);
   }
@@ -220,12 +225,54 @@
   }
 
   function currentPool() {
+    if (state.chapterQuiz) {
+      var lesson = null;
+      for (var i = 0; i < LESSONS.length; i++) if (LESSONS[i].key === state.chapterQuiz.key) lesson = LESSONS[i];
+      if (lesson && lesson.quiz && lesson.quiz.length) {
+        return lesson.quiz.map(function (id) {
+          return CARDS.filter(function (c) { return c.id === id; })[0];
+        }).filter(Boolean);
+      }
+      state.chapterQuiz = null;
+    }
     if (state.reviewMode) {
       var wrongs = CARDS.filter(function (c) { return state.wrongIds.indexOf(c.id) !== -1; });
       if (wrongs.length) return wrongs;
       state.reviewMode = false; // 오답이 없으면 복습 모드도 함께 해제 (플래그·UI·deck 불일치 방지)
     }
     return CARDS.slice();
+  }
+
+  /* ---------- 챕터 확인 퀴즈 ---------- */
+  function startChapterQuiz(lesson) {
+    state.mode = 'quiz';
+    state.chapterQuiz = { key: lesson.key, title: lesson.title };
+    state.reviewMode = false;
+    state.quiz.score = 0;
+    state.quiz.attempted = 0;
+    rebuildDeck(false);
+    render();
+    window.scrollTo(0, 0);
+    toast('챕터 확인 퀴즈 시작! (' + state.deck.length + '문제)');
+  }
+
+  function exitChapterQuiz(showResult) {
+    var cq = state.chapterQuiz;
+    if (showResult && cq) {
+      toast('챕터 퀴즈 완료: ' + state.quiz.score + '/' + state.quiz.attempted + ' 정답');
+    }
+    state.chapterQuiz = null;
+    state.mode = 'study';
+    state.lessonKey = cq ? cq.key : null;
+    state.quiz.score = 0;
+    state.quiz.attempted = 0;
+    rebuildDeck(false);
+    render();
+    window.scrollTo(0, 0);
+  }
+
+  function finishChapterQuiz() {
+    exitChapterQuiz(true);
   }
 
   function rebuildDeck(shuffled) {
@@ -243,6 +290,7 @@
     state.searchQuery = '';
     state.glossQuery = '';
     state.lessonKey = null;
+    state.chapterQuiz = null;
     if (mode !== 'quiz') state.reviewMode = false;
     rebuildDeck(false);
     render();
@@ -418,9 +466,53 @@
       '<span>' + esc(card.cat) + '</span></div>';
   }
 
+  /* ---------- 카드 심층 블록 (왜 + 반례 + 용어 링크) ---------- */
+  function goGlossary(term) {
+    switchMode('glossary');
+    state.glossQuery = term;
+    render();
+    window.scrollTo(0, 0);
+  }
+
+  function deepPanelHtml(card, suffix) {
+    var d = card.deep;
+    if (!d) return { btn: '', panel: '' };
+    var terms = (d.terms || []).map(function (t) {
+      return '<button class="deep-term" data-term="' + esc(t) + '">' + icon('gradCap') + ' ' + esc(t) + '</button>';
+    }).join('');
+    var panel =
+      '<div class="deep-panel hidden" id="deep-panel-' + suffix + '">' +
+        '<div class="deep-block deep-why"><h5>' + icon('search') + ' 왜 그럴까</h5><p>' + esc(d.why) + '</p></div>' +
+        (d.except ? '<div class="deep-block deep-except"><h5>' + icon('alertCircle') + ' 이럴 땐 반대로</h5><p>' + esc(d.except) + '</p></div>' : '') +
+        (terms ? '<div class="deep-terms">' + terms + '</div>' : '') +
+      '</div>';
+    var btn = '<button class="deep-toggle" id="deep-toggle-' + suffix + '">' + icon('search') + ' 더 깊이</button>';
+    return { btn: btn, panel: panel };
+  }
+
+  function wireDeep(suffix) {
+    var toggle = document.getElementById('deep-toggle-' + suffix);
+    var panel = document.getElementById('deep-panel-' + suffix);
+    if (!toggle || !panel) return;
+    toggle.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var opened = panel.classList.toggle('hidden');
+      toggle.classList.toggle('open', !opened);
+      if (!opened) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    panel.addEventListener('click', function (e) { e.stopPropagation(); });
+    panel.querySelectorAll('.deep-term').forEach(function (chip) {
+      chip.addEventListener('click', function (e) {
+        e.stopPropagation();
+        goGlossary(chip.dataset.term);
+      });
+    });
+  }
+
   function renderCardMode() {
     els.main.classList.remove('scroll-top');
     var card = state.deck[state.idx];
+    var deep = deepPanelHtml(card, 'card');
     els.content.innerHTML =
       '<div class="scene" id="scene" role="button" tabindex="0" aria-label="카드 뒤집기">' +
         '<div class="card3d' + (state.flipped ? ' flipped' : '') + '" id="card3d">' +
@@ -432,8 +524,9 @@
           '</div>' +
           '<div class="card-face card-back">' +
             '<div class="card-head"><span class="insight-tag">Insight</span></div>' +
-            '<div class="card-body"><p class="card-a">' + esc(card.a) + '</p></div>' +
-            '<div class="card-foot"><button class="ai-btn" id="ai-btn"' + (state.flipped ? '' : ' tabindex="-1"') + '>' + icon('sparkles') + ' 전문가 해설 보기</button></div>' +
+            '<div class="card-body"><div class="card-a-wrap"><p class="card-a">' + esc(card.a) + '</p>' + deep.panel + '</div></div>' +
+            '<div class="card-foot card-foot-row">' + deep.btn +
+              '<button class="ai-btn" id="ai-btn"' + (state.flipped ? '' : ' tabindex="-1"') + '>' + icon('sparkles') + ' 전문가 해설</button></div>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -454,6 +547,7 @@
       e.stopPropagation();
       openAiModal(card);
     });
+    wireDeep('card');
   }
 
   function renderQuizMode() {
@@ -480,14 +574,16 @@
     var resultHtml = '';
     if (state.quiz.selected !== -1) {
       var ok = state.quiz.correct;
+      var deepQ = deepPanelHtml(card, 'quiz');
       resultHtml =
         '<div class="quiz-result"><div class="quiz-result-box ' + (ok ? 'ok' : 'no') + '">' +
           '<div class="quiz-result-head">' +
             '<div class="quiz-result-title">' + icon(ok ? 'checkCircle' : 'alertCircle') +
               '<span>' + (ok ? 'Excellent Insight.' : 'Review Needed.') + '</span></div>' +
-            '<button class="quiz-result-ai" id="quiz-ai-btn">' + icon('sparkles') + ' 심층 해설</button>' +
+            '<button class="quiz-result-ai" id="quiz-ai-btn">' + icon('sparkles') + ' AI 해설</button>' +
           '</div>' +
           '<p>' + esc(card.a) + '</p>' +
+          deepQ.btn + deepQ.panel +
         '</div></div>';
     }
 
@@ -497,9 +593,12 @@
           '<div class="quiz-score">' + icon('trophy') +
             '<span>SCORE: ' + state.quiz.score + '/' + state.quiz.attempted +
             (state.lifetime.attempted ? ' · 누적 ' + lifetimeRate + '%' : '') + '</span></div>' +
-          '<div style="display:flex;gap:.5rem;align-items:center">' +
-            '<button class="review-btn' + (state.reviewMode ? ' active' : '') + '" id="review-btn" title="틀린 문제만 다시 풀기">' +
-              icon('repeat') + ' 오답 ' + state.wrongIds.length + '</button>' +
+          '<div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">' +
+            (state.chapterQuiz
+              ? '<button class="review-btn active" id="chapter-exit" title="레슨으로 돌아가기">' +
+                  icon('chevronLeft') + ' ' + esc(state.chapterQuiz.title.length > 14 ? state.chapterQuiz.title.slice(0, 14) + '…' : state.chapterQuiz.title) + ' 나가기</button>'
+              : '<button class="review-btn' + (state.reviewMode ? ' active' : '') + '" id="review-btn" title="틀린 문제만 다시 풀기">' +
+                  icon('repeat') + ' 오답 ' + state.wrongIds.length + '</button>') +
             catChipHtml(card, 'quiz-cat') +
           '</div>' +
         '</div>' +
@@ -511,9 +610,13 @@
     els.content.querySelectorAll('.quiz-opt').forEach(function (btn) {
       btn.addEventListener('click', function () { answerQuiz(parseInt(btn.dataset.opt, 10)); });
     });
-    document.getElementById('review-btn').addEventListener('click', toggleReviewMode);
+    var reviewBtn = document.getElementById('review-btn');
+    if (reviewBtn) reviewBtn.addEventListener('click', toggleReviewMode);
+    var chapterExit = document.getElementById('chapter-exit');
+    if (chapterExit) chapterExit.addEventListener('click', function () { exitChapterQuiz(false); });
     var quizAiBtn = document.getElementById('quiz-ai-btn');
     if (quizAiBtn) quizAiBtn.addEventListener('click', function () { openAiModal(card); });
+    wireDeep('quiz');
   }
 
   function renderListMode() {
@@ -894,6 +997,9 @@
         '</header>' +
         sectionsHtml +
         '<div class="lesson-takeaway">' + icon('lightbulb') + '<div><h4>핵심 한 줄</h4><p>' + esc(l.takeaway) + '</p></div></div>' +
+        (l.quiz && l.quiz.length
+          ? '<button class="lesson-quiz-btn" id="lesson-quiz">' + icon('brain') + ' 이 챕터 확인 퀴즈 풀기 (' + l.quiz.length + '문제)</button>'
+          : '') +
         '<button class="lesson-done' + (read ? ' done' : '') + '" id="lesson-done">' +
           icon('checkCircle') + (read ? ' 읽음 완료 (취소하려면 클릭)' : ' 읽음으로 표시') + '</button>' +
         '<div class="lesson-nav">' +
@@ -907,6 +1013,8 @@
       render();
       window.scrollTo(0, 0);
     });
+    var quizBtn = document.getElementById('lesson-quiz');
+    if (quizBtn) quizBtn.addEventListener('click', function () { startChapterQuiz(l); });
     document.getElementById('lesson-done').addEventListener('click', function () {
       var nowRead = state.readLessons.indexOf(l.key) === -1;
       markLessonRead(l.key, nowRead);
@@ -979,9 +1087,14 @@
 
     els.progressFill.style.width = (((state.idx + 1) / state.deck.length) * 100) + '%';
 
-    var nextLabel = state.mode === 'quiz'
-      ? (state.quiz.selected !== -1 ? 'Next' : 'Skip')
-      : 'Next';
+    var nextLabel;
+    if (state.mode === 'quiz' && state.chapterQuiz && state.idx === state.deck.length - 1) {
+      nextLabel = '결과 보기';
+    } else if (state.mode === 'quiz') {
+      nextLabel = state.quiz.selected !== -1 ? 'Next' : 'Skip';
+    } else {
+      nextLabel = 'Next';
+    }
 
     els.footerContent.innerHTML =
       '<div class="nav-row">' +
