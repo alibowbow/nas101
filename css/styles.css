@@ -188,13 +188,13 @@ main {
   align-items: center;
   justify-content: center;
   width: 100%;
-  padding: 10rem 1rem 11rem;
+  /* nav/footer 실제 높이(JS가 --nav-h/--footer-h 주입)만큼만 비워서
+     카드 전체(TAP TO FLIP 포함)가 스크롤 없이 첫 화면에 들어오게 한다 */
+  padding: calc(var(--nav-h, 138px) + 0.75rem) 1rem calc(var(--footer-h, 170px) + 0.75rem);
   position: relative;
   z-index: 10;
   min-height: 100vh;
-}
-@media (min-width: 768px) {
-  main { padding-top: 8rem; }
+  min-height: 100svh; /* 모바일 주소창이 보일 때의 실제 가시 높이 기준 */
 }
 main.scroll-top { justify-content: flex-start; }
 
@@ -219,6 +219,14 @@ main.scroll-top { justify-content: flex-start; }
 }
 @media (min-width: 768px) {
   .scene { min-height: 420px; }
+}
+/* 세로가 짧은 화면: 최소 높이를 낮춰 카드가 화면 밖으로 밀리지 않게 */
+@media (max-height: 760px) {
+  .scene { min-height: 260px; }
+  .card-q { font-size: 1.1rem; }
+}
+@media (max-height: 620px) {
+  .scene { min-height: 200px; }
 }
 .card3d {
   width: 100%;
@@ -668,7 +676,7 @@ main.scroll-top { justify-content: flex-start; }
   -webkit-backdrop-filter: blur(32px);
   backdrop-filter: blur(32px);
   border-top: 1px solid var(--border-soft);
-  padding: 1.25rem 1rem 2rem;
+  padding: 1.1rem 1rem calc(1.5rem + env(safe-area-inset-bottom, 0px));
   box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
 }
 .footer-content { max-width: 42rem; margin: 0 auto; display: flex; flex-direction: column; gap: 1.25rem; }

@@ -98,6 +98,18 @@
     ai: { open: false, loading: false, error: null, text: null, card: null, needKey: false }
   };
 
+  // nav/footer의 실제 높이를 CSS 변수로 주입 —
+  // sticky 필터 오프셋과 main의 상하 여백이 실측값을 따라가게 한다.
+  function syncChromeHeights() {
+    var nav = document.querySelector('.topnav');
+    if (nav) document.documentElement.style.setProperty('--nav-h', nav.offsetHeight + 'px');
+    var footer = document.getElementById('footer');
+    if (footer) {
+      var h = footer.classList.contains('hidden') ? 16 : footer.offsetHeight;
+      document.documentElement.style.setProperty('--footer-h', h + 'px');
+    }
+  }
+
   var els = {
     main: document.getElementById('main'),
     content: document.getElementById('content'),
@@ -366,6 +378,7 @@
     else if (state.mode === 'list') renderListMode();
     else renderGlossaryMode();
     renderFooter();
+    syncChromeHeights();
     if (focusId) {
       var f = document.getElementById(focusId);
       if (f && typeof f.focus === 'function') f.focus();
@@ -793,13 +806,8 @@
   });
 
   /* ---------- 초기화 ---------- */
-  // sticky 필터가 nav에 가리지 않도록 실제 nav 높이를 CSS 변수로 주입
-  function syncNavHeight() {
-    var nav = document.querySelector('.topnav');
-    if (nav) document.documentElement.style.setProperty('--nav-h', nav.offsetHeight + 'px');
-  }
-  window.addEventListener('resize', syncNavHeight);
-  syncNavHeight();
+  window.addEventListener('resize', syncChromeHeights);
+  syncChromeHeights();
 
   els.modeSwitch.querySelectorAll('.mode-btn').forEach(function (btn) {
     btn.addEventListener('click', function () { switchMode(btn.dataset.mode); });
