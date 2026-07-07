@@ -595,6 +595,220 @@
     if (listEl) listEl.innerHTML = itemsHtml;
   }
 
+  /* ---------- 학습 모드: 시각화 컴포넌트 ---------- */
+  var TONE_CLASS = { good: 'tone-good', bad: 'tone-bad', warn: 'tone-warn', info: 'tone-info' };
+
+  function toneCls(tone) { return TONE_CLASS[tone] || ''; }
+
+  function vizChip(step) {
+    var t = typeof step === 'string' ? step : step.t;
+    var tone = typeof step === 'string' ? '' : toneCls(step.tone);
+    return '<span class="flow-chip ' + tone + '">' + esc(t) + '</span>';
+  }
+
+  function vizNote(viz) {
+    return viz.note ? '<p class="viz-note">' + icon('lightbulb') + esc(viz.note) + '</p>' : '';
+  }
+
+  function vizTitle(viz) {
+    return viz.title ? '<div class="viz-heading">' + esc(viz.title) + '</div>' : '';
+  }
+
+  function vizFlow(viz) {
+    var arrow = '<span class="flow-arrow">' + icon('chevronRight') + '</span>';
+    var branches = (viz.branches || []).map(function (b) {
+      return '<div class="flow-branch">' +
+        (b.label ? '<span class="flow-branch-label">' + esc(b.label) + '</span>' : '') +
+        '<div class="flow-chain">' + (b.steps || []).map(vizChip).join(arrow) + '</div>' +
+      '</div>';
+    }).join('');
+    return '<div class="viz viz-flow">' + vizTitle(viz) +
+      (viz.start ? '<div class="flow-start">' + esc(viz.start) + '</div>' : '') +
+      branches + vizNote(viz) + '</div>';
+  }
+
+  function vizSteps(viz) {
+    var items = (viz.items || []).map(function (it, i) {
+      return '<div class="step-item">' +
+        '<div class="step-badge"><span>' + (i + 1) + '</span></div>' +
+        '<div class="step-body">' +
+          (it.tag ? '<span class="step-tag">' + esc(it.tag) + '</span>' : '') +
+          '<strong>' + esc(it.t) + '</strong>' +
+          (it.d ? '<p>' + esc(it.d) + '</p>' : '') +
+        '</div>' +
+      '</div>';
+    }).join('');
+    return '<div class="viz viz-steps">' + vizTitle(viz) + items + vizNote(viz) + '</div>';
+  }
+
+  function vizCards(viz) {
+    var items = (viz.items || []).map(function (it) {
+      return '<div class="vcard">' +
+        (it.k ? '<span class="vcard-k">' + esc(it.k) + '</span>' : '') +
+        '<strong>' + esc(it.v) + '</strong>' +
+        (it.d ? '<p>' + esc(it.d) + '</p>' : '') +
+      '</div>';
+    }).join('');
+    return '<div class="viz viz-cards">' + vizTitle(viz) +
+      '<div class="vcard-grid cols-' + ((viz.items || []).length >= 3 ? 3 : 2) + '">' + items + '</div>' +
+      vizNote(viz) + '</div>';
+  }
+
+  function vizCompare(viz) {
+    function col(c) {
+      if (!c) return '';
+      return '<div class="cmp-col ' + toneCls(c.tone) + '">' +
+        '<h5>' + esc(c.title) + '</h5>' +
+        '<ul>' + (c.items || []).map(function (x) { return '<li>' + icon('chevronRight') + '<span>' + esc(x) + '</span></li>'; }).join('') + '</ul>' +
+      '</div>';
+    }
+    return '<div class="viz viz-compare">' + vizTitle(viz) +
+      '<div class="cmp-grid">' + col(viz.a) + col(viz.b) + '</div>' + vizNote(viz) + '</div>';
+  }
+
+  function vizMatrix(viz) {
+    var head = '<tr><th>' + esc(viz.corner || '') + '</th>' +
+      (viz.cols || []).map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr>';
+    var rows = (viz.rows || []).map(function (r) {
+      return '<tr><th>' + esc(r.label) + '</th>' +
+        (r.cells || []).map(function (c) {
+          return '<td class="' + toneCls(c.tone) + '">' + esc(c.t) + '</td>';
+        }).join('') + '</tr>';
+    }).join('');
+    return '<div class="viz viz-matrix">' + vizTitle(viz) +
+      '<div class="viz-scroll"><table>' + head + rows + '</table></div>' + vizNote(viz) + '</div>';
+  }
+
+  function vizTable(viz) {
+    var head = '<tr>' + (viz.head || []).map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '</tr>';
+    var rows = (viz.rows || []).map(function (r) {
+      return '<tr>' + r.map(function (c, i) {
+        return '<td' + (i === 0 ? ' class="first"' : '') + '>' + esc(c) + '</td>';
+      }).join('') + '</tr>';
+    }).join('');
+    return '<div class="viz viz-table">' + vizTitle(viz) +
+      '<div class="viz-scroll"><table>' + head + rows + '</table></div>' + vizNote(viz) + '</div>';
+  }
+
+  function vizBars(viz) {
+    var max = 0;
+    (viz.items || []).forEach(function (it) { if (it.value > max) max = it.value; });
+    if (!max) max = 100;
+    var rows = (viz.items || []).map(function (it) {
+      var w = Math.max(3, Math.round((it.value / max) * 100));
+      return '<div class="bar-row">' +
+        '<span class="bar-label">' + esc(it.label) + '</span>' +
+        '<div class="bar-track"><div class="bar-fill ' + toneCls(it.tone) + '" style="width:' + w + '%"></div></div>' +
+        '<span class="bar-value">' + esc(it.display || '') + '</span>' +
+      '</div>';
+    }).join('');
+    return '<div class="viz viz-bars">' + vizTitle(viz) + rows + vizNote(viz) + '</div>';
+  }
+
+  function vizTimeline(viz) {
+    var items = (viz.items || []).map(function (it) {
+      return '<div class="tl-item">' +
+        '<div class="tl-year">' + esc(it.year) + '</div>' +
+        '<div class="tl-body">' +
+          '<div class="tl-head"><strong>' + esc(it.title) + '</strong>' +
+            (it.stat ? '<span class="tl-stat">' + esc(it.stat) + '</span>' : '') + '</div>' +
+          (it.sub ? '<p>' + esc(it.sub) + '</p>' : '') +
+        '</div>' +
+      '</div>';
+    }).join('');
+    return '<div class="viz viz-timeline">' + vizTitle(viz) + items + vizNote(viz) + '</div>';
+  }
+
+  function vizCycle(viz) {
+    var phases = viz.phases || [];
+    // 경기 순환 곡선: 침체 바닥 → 회복 → 확장(정점) → 둔화 → 침체
+    var zones = phases.map(function (p, i) {
+      return '<rect x="' + (i * 100) + '" y="0" width="100" height="110" fill="' + esc(p.color) + '" opacity="0.07"/>' +
+        '<text x="' + (i * 100 + 50) + '" y="102" text-anchor="middle" fill="' + esc(p.color) + '" font-size="11" font-weight="700">' + esc(p.name) + '</text>';
+    }).join('');
+    var svg = '<svg viewBox="0 0 400 110" class="cycle-svg" aria-hidden="true">' + zones +
+      '<path d="M 0 88 C 60 84, 80 40, 150 22 C 185 14, 215 14, 250 22 C 320 40, 340 84, 400 88" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round"/>' +
+      '<circle cx="0" cy="88" r="4" fill="#fb7185"/><circle cx="200" cy="16" r="4" fill="#fbbf24"/>' +
+      '</svg>';
+    var cards = phases.map(function (p) {
+      return '<div class="cycle-card" style="border-color:' + esc(p.color) + '33">' +
+        '<strong style="color:' + esc(p.color) + '">' + esc(p.name) + '</strong>' +
+        '<p>' + esc(p.desc) + '</p>' +
+        '<span>' + esc(p.sectors) + '</span>' +
+      '</div>';
+    }).join('');
+    return '<div class="viz viz-cycle">' + vizTitle(viz) + svg +
+      '<div class="cycle-grid">' + cards + '</div>' + vizNote(viz) + '</div>';
+  }
+
+  function vizSpectrum(viz) {
+    var markers = (viz.markers || []).map(function (m) {
+      return '<div class="spec-marker" style="left:' + Math.min(100, Math.max(0, m.pos)) + '%">' +
+        '<span class="spec-pin"></span><span class="spec-label">' + esc(m.label) + '</span>' +
+      '</div>';
+    }).join('');
+    return '<div class="viz viz-spectrum">' + vizTitle(viz) +
+      '<div class="spec-ends"><span class="tone-info-text">' + esc(viz.left) + '</span><span class="tone-bad-text">' + esc(viz.right) + '</span></div>' +
+      '<div class="spec-bar">' + markers + '</div>' +
+      '<div class="spec-space"></div>' + vizNote(viz) + '</div>';
+  }
+
+  function vizDotplot(viz) {
+    var levels = viz.levels || [];
+    var cols = viz.cols || [];
+    var lh = 26, colW = 92, leftPad = 52, topPad = 10;
+    var H = topPad + levels.length * lh + 26;
+    var W = leftPad + cols.length * colW;
+    var parts = [];
+    levels.forEach(function (lv, li) {
+      var y = topPad + li * lh + lh / 2;
+      parts.push('<text x="' + (leftPad - 10) + '" y="' + (y + 4) + '" text-anchor="end" fill="#64748b" font-size="11">' + esc(lv) + '</text>');
+      parts.push('<line x1="' + leftPad + '" y1="' + y + '" x2="' + (W - 8) + '" y2="' + y + '" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>');
+    });
+    cols.forEach(function (c, ci) {
+      var cx = leftPad + ci * colW + colW / 2;
+      parts.push('<text x="' + cx + '" y="' + (H - 6) + '" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="700">' + esc(c.label) + '</text>');
+      (c.dots || []).forEach(function (count, li) {
+        var y = topPad + li * lh + lh / 2;
+        var start = cx - ((count - 1) * 9) / 2;
+        for (var d = 0; d < count; d++) {
+          parts.push('<circle cx="' + (start + d * 9) + '" cy="' + y + '" r="3.2" fill="#fbbf24" opacity="0.9"/>');
+        }
+      });
+    });
+    return '<div class="viz viz-dotplot">' + vizTitle(viz) +
+      '<div class="viz-scroll"><svg viewBox="0 0 ' + W + ' ' + H + '" class="dotplot-svg" style="min-width:' + Math.round(W * 0.9) + 'px" aria-hidden="true">' + parts.join('') + '</svg></div>' +
+      vizNote(viz) + '</div>';
+  }
+
+  function vizChecklist(viz) {
+    var items = (viz.items || []).map(function (x) {
+      return '<li>' + icon('checkCircle') + '<span>' + esc(x) + '</span></li>';
+    }).join('');
+    return '<div class="viz viz-checklist">' + vizTitle(viz) + '<ul>' + items + '</ul>' + vizNote(viz) + '</div>';
+  }
+
+  function renderViz(viz) {
+    if (!viz || !viz.type) return '';
+    try {
+      switch (viz.type) {
+        case 'flow': return vizFlow(viz);
+        case 'steps': return vizSteps(viz);
+        case 'cards': return vizCards(viz);
+        case 'compare': return vizCompare(viz);
+        case 'matrix': return vizMatrix(viz);
+        case 'table': return vizTable(viz);
+        case 'bars': return vizBars(viz);
+        case 'timeline': return vizTimeline(viz);
+        case 'cycle': return vizCycle(viz);
+        case 'spectrum': return vizSpectrum(viz);
+        case 'dotplot': return vizDotplot(viz);
+        case 'checklist': return vizChecklist(viz);
+        default: return '';
+      }
+    } catch (e) { return ''; }
+  }
+
   /* ---------- 학습 모드 (챕터형 레슨) ---------- */
   function markLessonRead(key, read) {
     var pos = state.readLessons.indexOf(key);
@@ -663,7 +877,7 @@
         : '';
       return '<section class="lesson-section">' +
         '<h3><span>' + (si + 1) + '</span> ' + esc(s.h) + '</h3>' +
-        '<p>' + esc(s.body) + '</p>' + pointsHtml +
+        '<p>' + esc(s.body) + '</p>' + renderViz(s.viz) + pointsHtml +
       '</section>';
     }).join('');
 
