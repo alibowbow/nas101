@@ -51,7 +51,10 @@
   /* 레슨 키 → 아이콘 매핑 */
   var LESSON_ICONS = {
     fed: 'landmark', calendar: 'calendar', earnings: 'barChart',
-    cycle: 'activity', history: 'history', risk: 'shield'
+    cycle: 'activity', history: 'history', risk: 'shield',
+    rates: 'lineChart', liquidity: 'droplet', nasdaq: 'pieChart',
+    breadth: 'layers', semis: 'cpu', volatility: 'activity',
+    technical: 'lineChart', playbook: 'repeat'
   };
 
   function icon(name, cls) {
@@ -95,9 +98,12 @@
     }
   };
 
+  function arrayValue(value) { return Array.isArray(value) ? value : []; }
+  function stringValue(value, fallback) { return typeof value === 'string' ? value : fallback; }
+
   /* ---------- 상태 ---------- */
   var state = {
-    mode: 'card',                 // card | quiz | list | glossary
+    mode: 'card',                 // card | quiz | study | list | glossary
     deck: CARDS.slice(),
     idx: 0,
     flipped: false,
@@ -107,12 +113,18 @@
     catFilter: 'All',
     glossQuery: '',
     lessonKey: null,              // 학습 모드: null이면 목록, 값이 있으면 해당 레슨 상세
-    readLessons: store.get('readLessons', []),
+    readLessons: arrayValue(store.get('readLessons', [])),
+    studySeen: arrayValue(store.get('studySeen', [])),
+    studyTrack: 'all',
+    studyQuery: '',
+    lastLesson: stringValue(store.get('lastLesson', ''), ''),
     chapterQuiz: null,            // {key, title} — 챕터 확인 퀴즈 진행 중이면 설정
     lifetime: store.get('stats', { attempted: 0, correct: 0 }),
-    wrongIds: store.get('wrongIds', []),
+    wrongIds: arrayValue(store.get('wrongIds', [])),
     ai: { open: false, loading: false, error: null, text: null, card: null, needKey: false }
   };
+
+  var lessonObserver = null;
 
   // nav/footer의 실제 높이를 CSS 변수로 주입 —
   // sticky 필터 오프셋과 main의 상하 여백이 실측값을 따라가게 한다.
@@ -436,6 +448,8 @@
   function render() {
     // innerHTML 전체 교체로 키보드 포커스가 유실되지 않도록 id 기준으로 복원
     var focusId = document.activeElement && document.activeElement.id;
+    if (lessonObserver) { lessonObserver.disconnect(); lessonObserver = null; }
+    els.content.classList.toggle('content--study', state.mode === 'study');
     renderNav();
     if (state.mode === 'card') renderCardMode();
     else if (state.mode === 'quiz') renderQuizMode();
@@ -891,6 +905,94 @@
     return '<div class="viz viz-checklist">' + vizTitle(viz) + '<ul>' + items + '</ul>' + vizNote(viz) + '</div>';
   }
 
+  function vizYieldCurve(viz) {
+    var labels = viz.labels || [];
+    var series = viz.series || [];
+    if (labels.length < 2 || !series.length) return '';
+    var colors = { good: '#34d399', bad: '#fb7185', warn: '#fbbf24', info: '#60a5fa' };
+    var all = [];
+    series.forEach(function (s) { (s.values || []).forEach(function (v) { if (isFinite(v)) all.push(Number(v)); }); });
+    if (!all.length) return '';
+    var min = Math.min.apply(null, all), max = Math.max.apply(null, all);
+    var pad = Math.max(0.25, (max - min) * 0.18);
+    min -= pad; max += pad;
+    var W = 620, H = 230, left = 48, right = 18, top = 22, bottom = 44;
+    function xAt(i) { return left + (i / (labels.length - 1)) * (W - left - right); }
+    function yAt(v) { return top + ((max - Number(v)) / (max - min || 1)) * (H - top - bottom); }
+    var grid = '';
+    for (var g = 0; g < 4; g++) {
+      var gy = top + (g / 3) * (H - top - bottom);
+      var gv = max - (g / 3) * (max - min);
+      grid += '<line x1="' + left + '" y1="' + gy + '" x2="' + (W - right) + '" y2="' + gy + '" stroke="rgba(255,255,255,.07)"/>' +
+        '<text x="' + (left - 8) + '" y="' + (gy + 4) + '" text-anchor="end" fill="#64748b" font-size="11">' + gv.toFixed(1) + '</text>';
+    }
+    var labelSvg = labels.map(function (label, i) {
+      return '<text x="' + xAt(i) + '" y="' + (H - 14) + '" text-anchor="middle" fill="#94a3b8" font-size="12">' + esc(label) + '</text>';
+    }).join('');
+    var paths = series.map(function (s) {
+      var values = (s.values || []).slice(0, labels.length);
+      var points = values.map(function (v, i) { return xAt(i) + ',' + yAt(v); }).join(' ');
+      var color = colors[s.tone] || colors.info;
+      var dots = values.map(function (v, i) {
+        return '<circle cx="' + xAt(i) + '" cy="' + yAt(v) + '" r="4" fill="' + color + '" stroke="#101319" stroke-width="2"/>';
+      }).join('');
+      return '<polyline points="' + points + '" fill="none" stroke="' + color + '" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>' + dots;
+    }).join('');
+    var legend = series.map(function (s) {
+      var color = colors[s.tone] || colors.info;
+      return '<span><i style="--legend:' + color + '"></i>' + esc(s.name) + '</span>';
+    }).join('');
+    return '<figure class="viz viz-yieldcurve">' + vizTitle(viz) +
+      '<div class="curve-legend">' + legend + '</div>' +
+      '<div class="viz-scroll" tabindex="0"><svg viewBox="0 0 ' + W + ' ' + H + '" class="curve-svg" role="img" aria-label="' + esc(viz.title || '곡선 비교') + '">' + grid + paths + labelSvg + '</svg></div>' +
+      vizNote(viz) + '</figure>';
+  }
+
+  function vizQuadrant(viz) {
+    var cells = (viz.cells || []).map(function (cell) {
+      return '<div class="quad-cell ' + toneCls(cell.tone) + '"><strong>' + esc(cell.title) + '</strong><p>' + esc(cell.text) + '</p></div>';
+    }).join('');
+    return '<figure class="viz viz-quadrant">' + vizTitle(viz) +
+      '<div class="quad-y-label quad-y-top">' + esc(viz.yTop) + '</div>' +
+      '<div class="quad-grid">' + cells + '</div>' +
+      '<div class="quad-y-label">' + esc(viz.yBottom) + '</div>' +
+      '<div class="quad-x-labels"><span>' + esc(viz.xLeft) + '</span><span>' + esc(viz.xRight) + '</span></div>' +
+      vizNote(viz) + '</figure>';
+  }
+
+  function vizLayers(viz) {
+    var items = (viz.items || []).map(function (item, i) {
+      return '<div class="layer-row ' + toneCls(item.tone) + '">' +
+        '<span class="layer-index">' + (i + 1) + '</span>' +
+        '<div><strong>' + esc(item.label) + '</strong><p>' + esc(item.value) + '</p></div>' +
+      '</div>';
+    }).join('');
+    return '<figure class="viz viz-layers">' + vizTitle(viz) + '<div class="layer-stack">' + items + '</div>' + vizNote(viz) + '</figure>';
+  }
+
+  function vizFormula(viz) {
+    var items = (viz.items || []).map(function (item) {
+      return '<div class="formula-item"><span>' + esc(item.k) + '</span><strong>' + esc(item.v) + '</strong></div>';
+    }).join('');
+    return '<figure class="viz viz-formula">' + vizTitle(viz) +
+      '<div class="formula-equation">' + esc(viz.equation) + '</div>' +
+      '<div class="formula-grid">' + items + '</div>' +
+      (viz.example ? '<figcaption class="formula-example">' + icon('lightbulb') + '<span>' + esc(viz.example) + '</span></figcaption>' : '') +
+      vizNote(viz) + '</figure>';
+  }
+
+  function vizScenario(viz) {
+    var branches = (viz.branches || []).map(function (item) {
+      return '<div class="scenario-branch ' + toneCls(item.tone) + '">' +
+        '<span class="scenario-line" aria-hidden="true"></span>' +
+        '<div><strong>' + esc(item.label) + '</strong><p>' + esc(item.outcome) + '</p></div>' +
+      '</div>';
+    }).join('');
+    return '<figure class="viz viz-scenario">' + vizTitle(viz) +
+      '<div class="scenario-root">' + esc(viz.root) + '</div>' +
+      '<div class="scenario-branches">' + branches + '</div>' + vizNote(viz) + '</figure>';
+  }
+
   function renderViz(viz) {
     if (!viz || !viz.type) return '';
     try {
@@ -907,9 +1009,17 @@
         case 'spectrum': return vizSpectrum(viz);
         case 'dotplot': return vizDotplot(viz);
         case 'checklist': return vizChecklist(viz);
+        case 'yieldcurve': return vizYieldCurve(viz);
+        case 'quadrant': return vizQuadrant(viz);
+        case 'layers': return vizLayers(viz);
+        case 'formula': return vizFormula(viz);
+        case 'scenario': return vizScenario(viz);
         default: return '';
       }
-    } catch (e) { return ''; }
+    } catch (e) {
+      if (window.console && console.error) console.error('시각화 렌더링 오류:', viz.type, e);
+      return '<div class="viz viz-error">시각화를 불러오지 못했습니다.</div>';
+    }
   }
 
   /* ---------- 학습 모드 (챕터형 레슨) ---------- */
@@ -917,7 +1027,48 @@
     var pos = state.readLessons.indexOf(key);
     if (read && pos === -1) state.readLessons.push(key);
     if (!read && pos !== -1) state.readLessons.splice(pos, 1);
+    if (read) {
+      var lesson = LESSONS.find(function (item) { return item.key === key; });
+      if (lesson && Array.isArray(lesson.sections)) {
+        lesson.sections.forEach(function (_, i) {
+          var seenKey = key + ':' + i;
+          if (state.studySeen.indexOf(seenKey) === -1) state.studySeen.push(seenKey);
+        });
+        store.set('studySeen', state.studySeen);
+      }
+    }
     store.set('readLessons', state.readLessons);
+  }
+
+  function markSectionSeen(lessonKey, sectionIndex) {
+    var seenKey = lessonKey + ':' + sectionIndex;
+    if (state.studySeen.indexOf(seenKey) !== -1) return false;
+    state.studySeen.push(seenKey);
+    store.set('studySeen', state.studySeen);
+    return true;
+  }
+
+  function lessonSeenCount(lesson) {
+    if (!lesson || !Array.isArray(lesson.sections)) return 0;
+    if (state.readLessons.indexOf(lesson.key) !== -1) return lesson.sections.length;
+    return lesson.sections.filter(function (_, i) {
+      return state.studySeen.indexOf(lesson.key + ':' + i) !== -1;
+    }).length;
+  }
+
+  function trackInfo(key) {
+    var tracks = typeof LEARNING_TRACKS !== 'undefined' ? LEARNING_TRACKS : [];
+    return tracks.find(function (track) { return track.key === key; }) || { key: key || 'all', title: '학습', short: '학습', description: '' };
+  }
+
+  function openLesson(key) {
+    var exists = LESSONS.some(function (lesson) { return lesson.key === key; });
+    if (!exists) return;
+    state.lessonKey = key;
+    state.lastLesson = key;
+    store.set('lastLesson', key);
+    render();
+    window.scrollTo(0, 0);
   }
 
   function renderStudyMode() {
@@ -932,37 +1083,142 @@
 
   function renderLessonList() {
     var readCount = LESSONS.filter(function (l) { return state.readLessons.indexOf(l.key) !== -1; }).length;
-    var itemsHtml = LESSONS.map(function (l, i) {
+    var totalSections = LESSONS.reduce(function (sum, l) { return sum + ((l.sections && l.sections.length) || 0); }, 0);
+    var totalMinutes = LESSONS.reduce(function (sum, l) { return sum + (Number(l.minutes) || 0); }, 0);
+    var progress = LESSONS.length ? Math.round((readCount / LESSONS.length) * 100) : 0;
+    var query = state.studyQuery.trim().toLowerCase();
+    var filtered = LESSONS.filter(function (lesson) {
+      var trackMatch = state.studyTrack === 'all' || lesson.track === state.studyTrack;
+      var haystack = [lesson.title, lesson.tagline, lesson.level].concat(lesson.tags || []).join(' ').toLowerCase();
+      return trackMatch && (!query || haystack.indexOf(query) !== -1);
+    });
+    var continueLesson = LESSONS.find(function (l) { return l.key === state.lastLesson; }) ||
+      LESSONS.find(function (l) { return state.readLessons.indexOf(l.key) === -1; }) || LESSONS[0];
+
+    function cardHtml(l) {
+      var index = LESSONS.indexOf(l);
       var read = state.readLessons.indexOf(l.key) !== -1;
-      return '<button class="lesson-card' + (read ? ' read' : '') + '" data-lesson="' + esc(l.key) + '">' +
-        '<div class="lesson-icon">' + icon(LESSON_ICONS[l.key] || 'bookOpen') + '</div>' +
-        '<div class="lesson-info">' +
-          '<div class="lesson-title-row"><span class="lesson-no">CH.' + (i + 1) + '</span>' +
-            (read ? '<span class="lesson-read-badge">' + icon('checkCircle') + ' 읽음</span>' : '') + '</div>' +
-          '<h3>' + esc(l.title) + '</h3>' +
-          '<p>' + esc(l.tagline) + '</p>' +
-          '<span class="lesson-minutes">' + icon('clock') + ' 약 ' + l.minutes + '분</span>' +
-        '</div>' +
-        '<span class="lesson-arrow">' + icon('chevronRight') + '</span>' +
-      '</button>';
+      var seen = lessonSeenCount(l);
+      var sectionCount = (l.sections && l.sections.length) || 0;
+      var cardProgress = read ? 100 : (sectionCount ? Math.round((seen / sectionCount) * 100) : 0);
+      var status = read ? '완독' : (seen ? seen + '/' + sectionCount + ' 섹션' : '시작 전');
+      var t = trackInfo(l.track);
+      return '<article class="lesson-card-wrap">' +
+        '<a class="lesson-card' + (read ? ' read' : '') + '" href="#study/' + esc(l.key) + '" data-lesson="' + esc(l.key) + '">' +
+          '<span class="lesson-icon">' + icon(LESSON_ICONS[l.key] || 'bookOpen') + '</span>' +
+          '<span class="lesson-info">' +
+            '<span class="lesson-title-row"><span class="lesson-no">CH.' + (index + 1) + '</span>' +
+              '<span class="lesson-track-badge">' + esc(t.short || t.title) + '</span>' +
+              (read ? '<span class="lesson-read-badge">' + icon('checkCircle') + ' 완독</span>' : '') + '</span>' +
+            '<span class="lesson-name" role="heading" aria-level="3">' + esc(l.title) + '</span>' +
+            '<span class="lesson-tagline">' + esc(l.tagline) + '</span>' +
+            '<span class="lesson-meta-row"><span>' + icon('clock') + ' ' + l.minutes + '분</span><span>' + esc(l.level || '기초') + '</span><span>' + sectionCount + '개 섹션</span></span>' +
+            '<span class="lesson-card-progress"><i style="width:' + cardProgress + '%"></i></span>' +
+            '<span class="lesson-card-status">' + esc(status) + '</span>' +
+          '</span>' +
+          '<span class="lesson-arrow">' + icon('chevronRight') + '</span>' +
+        '</a>' +
+      '</article>';
+    }
+
+    var tracks = (typeof LEARNING_TRACKS !== 'undefined' ? LEARNING_TRACKS : []).filter(function (t) { return t.key !== 'all'; });
+    var groupsHtml;
+    if (!filtered.length) {
+      groupsHtml = '<div class="empty-state study-empty">' + icon('search') + '<p>조건에 맞는 챕터가 없습니다.</p><span>검색어나 학습 트랙을 바꿔보세요.</span></div>';
+    } else if (state.studyTrack !== 'all' || query) {
+      groupsHtml = '<div class="lesson-grid">' + filtered.map(cardHtml).join('') + '</div>';
+    } else {
+      groupsHtml = tracks.map(function (track) {
+        var lessons = filtered.filter(function (l) { return l.track === track.key; });
+        if (!lessons.length) return '';
+        return '<section class="track-section" aria-labelledby="track-' + esc(track.key) + '">' +
+          '<header class="track-head"><div><span>' + esc(track.short) + ' TRACK</span><h3 id="track-' + esc(track.key) + '">' + esc(track.title) + '</h3><p>' + esc(track.description) + '</p></div><b>' + lessons.length + ' CHAPTERS</b></header>' +
+          '<div class="lesson-grid">' + lessons.map(cardHtml).join('') + '</div>' +
+        '</section>';
+      }).join('');
+    }
+
+    var filtersHtml = (typeof LEARNING_TRACKS !== 'undefined' ? LEARNING_TRACKS : []).map(function (track) {
+      var active = state.studyTrack === track.key;
+      return '<button class="study-filter' + (active ? ' active' : '') + '" data-study-track="' + esc(track.key) + '" aria-pressed="' + (active ? 'true' : 'false') + '">' + esc(track.title) + '</button>';
     }).join('');
 
     els.content.innerHTML =
-      '<div class="list-wrap">' +
-        '<div class="study-head">' +
-          '<div><h2>매크로 스쿨</h2><p>시장을 움직이는 원리를 챕터별로 배웁니다</p></div>' +
-          '<div class="study-progress">' + readCount + ' / ' + LESSONS.length + ' 완독</div>' +
-        '</div>' +
-        '<div class="lesson-list">' + itemsHtml + '</div>' +
+      '<div class="list-wrap study-dashboard">' +
+        '<section class="study-hero">' +
+          '<div class="study-hero-copy"><span class="study-eyebrow">NASDAQ 101 · LEARNING PATH</span><h2>시장을 외우지 않고<br><em>연결해서 읽는 법</em></h2><p>금리에서 기업 이익, 시장 내부, 포지션 운영까지 하나의 흐름으로 익히는 반응형 커리큘럼입니다.</p>' +
+            (continueLesson ? '<button class="study-continue" id="study-continue" data-lesson="' + esc(continueLesson.key) + '">' + icon('bookOpen') + '<span><small>' + (state.lastLesson ? '이어서 학습' : '추천 시작') + '</small><strong>' + esc(continueLesson.title) + '</strong></span>' + icon('chevronRight') + '</button>' : '') +
+          '</div>' +
+          '<div class="study-ring" style="--study-progress:' + progress + '" aria-label="전체 완독률 ' + progress + '%"><div><strong>' + progress + '%</strong><span>' + readCount + ' / ' + LESSONS.length + ' 완독</span></div></div>' +
+        '</section>' +
+        '<div class="study-stats"><div><strong>' + LESSONS.length + '</strong><span>심층 챕터</span></div><div><strong>' + totalSections + '</strong><span>시각화 섹션</span></div><div><strong>' + Math.floor(totalMinutes / 60) + 'h ' + (totalMinutes % 60) + 'm</strong><span>예상 학습시간</span></div><div><strong>' + CARDS.length + '</strong><span>연결 카드</span></div></div>' +
+        '<section class="study-tools" aria-label="학습 챕터 찾기"><div class="study-search">' + icon('search') + '<input id="study-search" type="search" placeholder="챕터·개념 검색" value="' + esc(state.studyQuery) + '" aria-label="학습 챕터 검색"></div><div class="study-filters" role="group" aria-label="학습 트랙">' + filtersHtml + '</div></section>' +
+        '<div class="study-roadmap">' + groupsHtml + '</div>' +
       '</div>';
 
-    els.content.querySelectorAll('.lesson-card').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        state.lessonKey = btn.dataset.lesson;
-        render();
-        window.scrollTo(0, 0);
-      });
+    var continueBtn = document.getElementById('study-continue');
+    if (continueBtn) continueBtn.addEventListener('click', function () { openLesson(continueBtn.dataset.lesson); });
+    els.content.querySelectorAll('.lesson-card').forEach(function (link) {
+      link.addEventListener('click', function (e) { e.preventDefault(); openLesson(link.dataset.lesson); });
     });
+    els.content.querySelectorAll('[data-study-track]').forEach(function (btn) {
+      btn.addEventListener('click', function () { state.studyTrack = btn.dataset.studyTrack; render(); window.scrollTo(0, 0); });
+    });
+    var searchInput = document.getElementById('study-search');
+    if (searchInput) {
+      var composingSearch = false;
+      function applyStudySearch(value, cursor) {
+        state.studyQuery = value;
+        render();
+        var nextInput = document.getElementById('study-search');
+        if (nextInput) {
+          nextInput.focus();
+          if (typeof cursor === 'number') nextInput.setSelectionRange(cursor, cursor);
+        }
+      }
+      searchInput.addEventListener('compositionstart', function () { composingSearch = true; });
+      searchInput.addEventListener('compositionend', function () {
+        composingSearch = false;
+        applyStudySearch(searchInput.value, searchInput.selectionStart);
+      });
+      searchInput.addEventListener('input', function (event) {
+        // 한글 등 IME 조합 중 DOM을 교체하면 글자가 자모 단위로 끊길 수 있다.
+        state.studyQuery = searchInput.value;
+        if (composingSearch || event.isComposing || !searchInput.isConnected) return;
+        applyStudySearch(searchInput.value, searchInput.selectionStart);
+      });
+    }
+  }
+
+  function updateLessonProgressUi(lesson, activeIndex) {
+    var seen = lessonSeenCount(lesson);
+    var total = lesson.sections.length;
+    var pct = total ? Math.round((seen / total) * 100) : 0;
+    els.content.querySelectorAll('.lesson-progress-value').forEach(function (el) { el.textContent = seen + ' / ' + total + ' 섹션'; });
+    els.content.querySelectorAll('.lesson-progress-fill').forEach(function (el) { el.style.width = pct + '%'; });
+    if (typeof activeIndex === 'number') {
+      els.content.querySelectorAll('[data-section-target]').forEach(function (btn) {
+        var current = Number(btn.dataset.sectionTarget) === activeIndex;
+        btn.classList.toggle('active', current);
+        if (current) btn.setAttribute('aria-current', 'step'); else btn.removeAttribute('aria-current');
+      });
+    }
+  }
+
+  function wireLessonProgress(lesson) {
+    var sectionEls = Array.prototype.slice.call(els.content.querySelectorAll('.lesson-section[data-section-index]'));
+    if (!sectionEls.length) return;
+    markSectionSeen(lesson.key, 0);
+    updateLessonProgressUi(lesson, 0);
+    if (!('IntersectionObserver' in window)) return;
+    lessonObserver = new IntersectionObserver(function (entries) {
+      var visible = entries.filter(function (entry) { return entry.isIntersecting; }).sort(function (a, b) { return b.intersectionRatio - a.intersectionRatio; });
+      if (!visible.length) return;
+      var index = Number(visible[0].target.dataset.sectionIndex);
+      markSectionSeen(lesson.key, index);
+      updateLessonProgressUi(lesson, index);
+    }, { rootMargin: '-22% 0px -60% 0px', threshold: [0, 0.15, 0.35] });
+    sectionEls.forEach(function (section) { lessonObserver.observe(section); });
   }
 
   function renderLessonDetail() {
@@ -970,7 +1226,10 @@
     for (var i = 0; i < LESSONS.length; i++) if (LESSONS[i].key === state.lessonKey) { idx = i; break; }
     if (idx === -1) { state.lessonKey = null; renderLessonList(); return; }
     var l = LESSONS[idx];
+    if (!Array.isArray(l.sections) || !l.sections.length) { state.lessonKey = null; renderLessonList(); return; }
     var read = state.readLessons.indexOf(l.key) !== -1;
+    state.lastLesson = l.key;
+    store.set('lastLesson', l.key);
 
     var sectionsHtml = l.sections.map(function (s, si) {
       var pointsHtml = (s.points && s.points.length)
@@ -978,33 +1237,58 @@
             return '<li>' + icon('chevronRight') + '<span>' + esc(p) + '</span></li>';
           }).join('') + '</ul>'
         : '';
-      return '<section class="lesson-section">' +
+      var visuals = s.visuals || (s.viz ? [s.viz] : []);
+      return '<section class="lesson-section" id="lesson-section-' + si + '" data-section-index="' + si + '" tabindex="-1">' +
         '<h3><span>' + (si + 1) + '</span> ' + esc(s.h) + '</h3>' +
-        '<p>' + esc(s.body) + '</p>' + renderViz(s.viz) + pointsHtml +
+        '<p>' + esc(s.body) + '</p>' + visuals.map(renderViz).join('') + pointsHtml +
       '</section>';
     }).join('');
+
+    var tocHtml = l.sections.map(function (s, si) {
+      return '<button data-section-target="' + si + '"><span>' + (si + 1) + '</span>' + esc(s.h) + '</button>';
+    }).join('');
+    var objectivesHtml = (l.objectives || []).map(function (objective) { return '<li>' + icon('checkCircle') + '<span>' + esc(objective) + '</span></li>'; }).join('');
+    var tagsHtml = (l.tags || []).map(function (tag) { return '<span>' + esc(tag) + '</span>'; }).join('');
+    var sourceHtml = (l.sources || []).map(function (source) {
+      var url = /^https:\/\//.test(source.url || '') ? source.url : '#';
+      return '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer"><span>' + esc(source.title) + '</span>' + icon('chevronRight') + '</a>';
+    }).join('');
+    var track = trackInfo(l.track);
 
     var prevL = idx > 0 ? LESSONS[idx - 1] : null;
     var nextL = idx < LESSONS.length - 1 ? LESSONS[idx + 1] : null;
 
     els.content.innerHTML =
-      '<div class="list-wrap lesson-detail">' +
+      '<div class="list-wrap lesson-detail lesson-detail-wrap">' +
         '<button class="lesson-back" id="lesson-back">' + icon('chevronLeft') + ' 목록으로</button>' +
         '<header class="lesson-head">' +
-          '<span class="lesson-no">CHAPTER ' + (idx + 1) + '</span>' +
-          '<h2>' + esc(l.title) + '</h2>' +
-          '<p>' + esc(l.tagline) + ' · ' + icon('clock') + ' 약 ' + l.minutes + '분</p>' +
+          '<div class="lesson-head-meta"><span class="lesson-no">CHAPTER ' + (idx + 1) + '</span><span>' + esc(track.title) + '</span><span>' + esc(l.level || '기초') + '</span></div>' +
+          '<h2 id="lesson-title" tabindex="-1">' + esc(l.title) + '</h2>' +
+          '<p>' + esc(l.tagline) + '</p>' +
+          '<div class="lesson-head-facts"><span>' + icon('clock') + ' 약 ' + l.minutes + '분</span><span>' + icon('layers') + ' ' + l.sections.length + '개 섹션</span></div>' +
+          (tagsHtml ? '<div class="lesson-tags">' + tagsHtml + '</div>' : '') +
         '</header>' +
-        sectionsHtml +
-        '<div class="lesson-takeaway">' + icon('lightbulb') + '<div><h4>핵심 한 줄</h4><p>' + esc(l.takeaway) + '</p></div></div>' +
-        (l.quiz && l.quiz.length
-          ? '<button class="lesson-quiz-btn" id="lesson-quiz">' + icon('brain') + ' 이 챕터 확인 퀴즈 풀기 (' + l.quiz.length + '문제)</button>'
-          : '') +
-        '<button class="lesson-done' + (read ? ' done' : '') + '" id="lesson-done">' +
-          icon('checkCircle') + (read ? ' 읽음 완료 (취소하려면 클릭)' : ' 읽음으로 표시') + '</button>' +
-        '<div class="lesson-nav">' +
-          (prevL ? '<button class="lesson-nav-btn" data-lesson="' + esc(prevL.key) + '">' + icon('chevronLeft') + '<span>' + esc(prevL.title) + '</span></button>' : '<span></span>') +
-          (nextL ? '<button class="lesson-nav-btn next" data-lesson="' + esc(nextL.key) + '"><span>' + esc(nextL.title) + '</span>' + icon('chevronRight') + '</button>' : '<span></span>') +
+        '<details class="lesson-mobile-toc"><summary><span>목차</span><b class="lesson-progress-value">' + lessonSeenCount(l) + ' / ' + l.sections.length + ' 섹션</b></summary><nav>' + tocHtml + '</nav></details>' +
+        '<div class="lesson-shell">' +
+          '<aside class="lesson-toc" aria-label="챕터 목차">' +
+            '<div class="toc-progress"><span>학습 진행</span><strong class="lesson-progress-value">' + lessonSeenCount(l) + ' / ' + l.sections.length + ' 섹션</strong><div><i class="lesson-progress-fill" style="width:' + Math.round((lessonSeenCount(l) / l.sections.length) * 100) + '%"></i></div></div>' +
+            (objectivesHtml ? '<div class="toc-objectives"><h3>학습 목표</h3><ul>' + objectivesHtml + '</ul></div>' : '') +
+            '<nav class="toc-nav">' + tocHtml + '</nav>' +
+          '</aside>' +
+          '<article class="lesson-article">' +
+            sectionsHtml +
+            '<div class="lesson-takeaway">' + icon('lightbulb') + '<div><h4>핵심 한 줄</h4><p>' + esc(l.takeaway) + '</p></div></div>' +
+            (sourceHtml ? '<details class="lesson-sources"><summary>공식 자료와 더 읽을거리 <span>' + (l.sources || []).length + '</span></summary><div>' + sourceHtml + '</div></details>' : '') +
+            (l.quiz && l.quiz.length
+              ? '<button class="lesson-quiz-btn" id="lesson-quiz">' + icon('brain') + '<span><strong>이해도 확인하기</strong><small>이 챕터와 연결된 ' + l.quiz.length + '문제</small></span>' + icon('chevronRight') + '</button>'
+              : '') +
+            '<button class="lesson-done' + (read ? ' done' : '') + '" id="lesson-done">' +
+              icon('checkCircle') + (read ? ' 완독 표시됨 · 취소하려면 클릭' : ' 이 챕터를 완독으로 표시') + '</button>' +
+            '<div class="lesson-nav">' +
+              (prevL ? '<button class="lesson-nav-btn" data-lesson="' + esc(prevL.key) + '">' + icon('chevronLeft') + '<span><small>이전 챕터</small>' + esc(prevL.title) + '</span></button>' : '<span></span>') +
+              (nextL ? '<button class="lesson-nav-btn next" data-lesson="' + esc(nextL.key) + '"><span><small>다음 챕터</small>' + esc(nextL.title) + '</span>' + icon('chevronRight') + '</button>' : '<span></span>') +
+            '</div>' +
+          '</article>' +
         '</div>' +
       '</div>';
 
@@ -1021,13 +1305,20 @@
       render();
       if (nowRead) toast('챕터를 완독했습니다!');
     });
-    els.content.querySelectorAll('.lesson-nav-btn').forEach(function (btn) {
+    els.content.querySelectorAll('.lesson-nav-btn').forEach(function (btn) { btn.addEventListener('click', function () { openLesson(btn.dataset.lesson); }); });
+    els.content.querySelectorAll('[data-section-target]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        state.lessonKey = btn.dataset.lesson;
-        render();
-        window.scrollTo(0, 0);
+        var sectionIndex = Number(btn.dataset.sectionTarget);
+        var target = document.getElementById('lesson-section-' + sectionIndex);
+        if (target) {
+          markSectionSeen(l.key, sectionIndex);
+          updateLessonProgressUi(l, sectionIndex);
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          target.focus({ preventScroll: true });
+        }
       });
     });
+    wireLessonProgress(l);
   }
 
   function renderGlossaryMode() {
