@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="description" content="Nasdaq 101 — 매크로부터 시장 판독, 리스크 관리까지 연결해서 익히는 나스닥 학습 시스템">
-  <meta name="theme-color" content="#07111f">
-  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Nasdaq 101 — 200여 개 투자 카드와 14개 심층 챕터로 나스닥·매크로 원리를 학습하는 웹앱">
+  <meta name="theme-color" content="#0a0a0a">
   <meta property="og:title" content="Nasdaq 101 · Macro Strategy">
   <meta property="og:description" content="금리·유동성·실적·반도체·시장 폭·변동성까지 — 200여 개 카드와 14개 챕터로 배우는 나스닥 투자 원리">
-  <title>Nasdaq 101 · Market Learning System</title>
+  <title>Nasdaq 101 · Macro Strategy</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f59e0b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16'/%3E%3Crect width='20' height='14' x='2' y='6' rx='2'/%3E%3C/svg%3E">
-  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
-  <link rel="stylesheet" href="css/redesign.css">
 </head>
 <body>
   <a class="skip-link" href="#main">학습 콘텐츠로 바로가기</a>
@@ -21,31 +21,25 @@
   <!-- 상단 내비게이션 -->
   <nav class="topnav">
     <div class="topnav-inner">
-      <button class="brand" id="brand-home" aria-label="Nasdaq 101 홈으로 이동">
-        <span class="brand-logo" aria-hidden="true"><b>N</b><i>101</i></span>
-        <span class="brand-copy">
-          <strong>NASDAQ 101</strong>
-          <small>MARKET LEARNING SYSTEM</small>
-        </span>
-      </button>
-
-      <div class="topnav-actions">
-        <div class="header-progress" id="header-progress" aria-label="전체 학습 진행률"></div>
-        <button class="header-search" id="global-search-btn" aria-label="전체 검색 열기">
-          <span data-icon="search"></span><span class="header-search-label">전체 검색</span><kbd>/</kbd>
-        </button>
-        <button class="icon-btn" id="settings-btn" data-icon="settings" title="AI 해설 설정" aria-label="AI 해설 설정"></button>
+      <div class="brand">
+        <div class="brand-logo" data-icon="briefcase"></div>
+        <div>
+          <h1>Nasdaq 101</h1>
+          <span class="tagline">Macro Strategy</span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:.4rem;max-width:100%">
+        <div class="mode-switch" id="mode-switch" aria-label="모드 선택">
+          <button class="mode-btn active" data-mode="card" aria-pressed="true"><span data-icon="bookOpen"></span><span>Card</span></button>
+          <button class="mode-btn" data-mode="quiz" aria-pressed="false"><span data-icon="brain"></span><span>Quiz</span></button>
+          <button class="mode-btn" data-mode="study" aria-pressed="false"><span data-icon="library"></span><span>학습</span></button>
+          <button class="mode-btn" data-mode="list" aria-pressed="false"><span data-icon="fileText"></span><span>List</span></button>
+          <button class="mode-btn" data-mode="glossary" aria-pressed="false"><span data-icon="gradCap"></span><span>용어</span></button>
+        </div>
+        <button class="icon-btn" id="settings-btn" data-icon="settings" title="AI 해설 API 키 설정" aria-label="설정"></button>
       </div>
     </div>
   </nav>
-
-  <div class="mode-switch" id="mode-switch" role="navigation" aria-label="주요 메뉴">
-    <button class="mode-btn active" data-mode="home" aria-pressed="true"><span data-icon="home"></span><span>홈</span></button>
-    <button class="mode-btn" data-mode="study" aria-pressed="false"><span data-icon="library"></span><span>학습</span></button>
-    <button class="mode-btn" data-mode="card" aria-pressed="false"><span data-icon="bookOpen"></span><span>카드</span></button>
-    <button class="mode-btn" data-mode="quiz" aria-pressed="false"><span data-icon="brain"></span><span>퀴즈</span></button>
-    <button class="mode-btn" data-mode="list" aria-pressed="false"><span data-icon="search"></span><span>탐색</span></button>
-  </div>
 
   <!-- 메인 콘텐츠 -->
   <main id="main" tabindex="-1">
@@ -61,7 +55,6 @@
   </footer>
 
   <div id="modal-root"></div>
-  <div id="search-root"></div>
   <div id="toast-root" role="status" aria-live="polite" aria-atomic="true"></div>
 
   <noscript>
