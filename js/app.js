@@ -7,7 +7,6 @@
 
   /* ---------- 아이콘 (lucide 기반 인라인 SVG) ---------- */
   var ICONS = {
-    home: '<path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/>',
     briefcase: '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
     bookOpen: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
     brain: '<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M9 13a4.5 4.5 0 0 0 3-4"/><path d="M12 13h4"/><path d="M12 18h6a2 2 0 0 1 2 2v1"/><path d="M12 8h8"/><path d="M16 8V5a2 2 0 0 1 2-2"/><circle cx="16" cy="13" r=".5"/><circle cx="18" cy="3" r=".5"/><circle cx="20" cy="21" r=".5"/><circle cx="20" cy="8" r=".5"/>',
@@ -46,10 +45,7 @@
     history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
     clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
     lineChart: '<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>',
-    layers: '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
-    bookmark: '<path d="M19 21 12 16l-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
-    target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
-    zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9-11a.5.5 0 0 1 .87.46l-1.5 6.7A1 1 0 0 0 12.56 10H20a1 1 0 0 1 .78 1.63l-9 11a.5.5 0 0 1-.87-.46l1.5-6.7A1 1 0 0 0 11.44 14z"/>'
+    layers: '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>'
   };
 
   /* 레슨 키 → 아이콘 매핑 */
@@ -104,11 +100,10 @@
 
   function arrayValue(value) { return Array.isArray(value) ? value : []; }
   function stringValue(value, fallback) { return typeof value === 'string' ? value : fallback; }
-  function objectValue(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 
   /* ---------- 상태 ---------- */
   var state = {
-    mode: 'home',                 // home | card | quiz | study | list | glossary
+    mode: 'card',                 // card | quiz | study | list | glossary
     deck: CARDS.slice(),
     idx: 0,
     flipped: false,
@@ -124,47 +119,10 @@
     studyQuery: '',
     lastLesson: stringValue(store.get('lastLesson', ''), ''),
     chapterQuiz: null,            // {key, title} — 챕터 확인 퀴즈 진행 중이면 설정
-    quizSession: null,            // 홈에서 시작한 집중 세션
-    cardFocusIds: null,
-    cardDeckTitle: '',
     lifetime: store.get('stats', { attempted: 0, correct: 0 }),
     wrongIds: arrayValue(store.get('wrongIds', [])),
-    mastery: objectValue(store.get('mastery', {})),
-    bookmarks: arrayValue(store.get('bookmarks', [])),
-    activity: arrayValue(store.get('activity', [])).slice(0, 30),
-    globalSearch: { open: false, query: '' },
     ai: { open: false, loading: false, error: null, text: null, card: null, needKey: false }
   };
-
-  // 이전 버전 또는 수동 수정으로 저장값이 손상되어도 앱이 시작되도록 정규화한다.
-  (function normalizeStoredProgress() {
-    var cardIds = new Set(CARDS.map(function (card) { return card.id; }));
-    var lessonKeys = new Set(LESSONS.map(function (lesson) { return lesson.key; }));
-    state.wrongIds = Array.from(new Set(state.wrongIds.map(Number).filter(function (id) { return cardIds.has(id); })));
-    state.bookmarks = Array.from(new Set(state.bookmarks.map(Number).filter(function (id) { return cardIds.has(id); })));
-    state.readLessons = Array.from(new Set(state.readLessons.filter(function (key) { return lessonKeys.has(key); })));
-    var validSeen = new Set();
-    LESSONS.forEach(function (lesson) {
-      (lesson.sections || []).forEach(function (_, index) {
-        var key = lesson.key + ':' + index;
-        if (state.studySeen.indexOf(key) !== -1) validSeen.add(key);
-      });
-    });
-    state.studySeen = Array.from(validSeen);
-    var cleanMastery = {};
-    Object.keys(state.mastery).forEach(function (key) {
-      var id = Number(key);
-      var item = state.mastery[key];
-      if (!cardIds.has(id) || !item || typeof item !== 'object') return;
-      var attempted = Math.max(0, Number(item.attempted) || 0);
-      var correct = Math.min(attempted, Math.max(0, Number(item.correct) || 0));
-      cleanMastery[id] = { attempted: attempted, correct: correct, streak: Math.max(0, Number(item.streak) || 0), lastSeen: Math.max(0, Number(item.lastSeen) || 0) };
-    });
-    state.mastery = cleanMastery;
-    state.lifetime = objectValue(state.lifetime);
-    state.lifetime.attempted = Math.max(0, Number(state.lifetime.attempted) || 0);
-    state.lifetime.correct = Math.min(state.lifetime.attempted, Math.max(0, Number(state.lifetime.correct) || 0));
-  })();
 
   var lessonObserver = null;
 
@@ -186,10 +144,8 @@
     footer: document.getElementById('footer'),
     footerContent: document.getElementById('footer-content'),
     progressFill: document.getElementById('progress-fill'),
-    headerProgress: document.getElementById('header-progress'),
     modeSwitch: document.getElementById('mode-switch'),
     modalRoot: document.getElementById('modal-root'),
-    searchRoot: document.getElementById('search-root'),
     toastRoot: document.getElementById('toast-root')
   };
 
@@ -272,14 +228,6 @@
       finishChapterQuiz();
       return;
     }
-    if (state.mode === 'quiz' && state.quizSession && state.idx === state.deck.length - 1 && state.quiz.selected !== -1) {
-      state.quizSession.done = true;
-      state.quizSession.finishedAt = Date.now();
-      addActivity('quiz', state.quizSession.label, state.quiz.score + '/' + state.quiz.attempted);
-      render();
-      window.scrollTo(0, 0);
-      return;
-    }
     if (state.mode === 'quiz' && state.reviewMode) { advanceReview(1); return; }
     goTo(state.idx < state.deck.length - 1 ? state.idx + 1 : 0);
   }
@@ -289,16 +237,6 @@
   }
 
   function currentPool() {
-    if (state.mode === 'card' && Array.isArray(state.cardFocusIds)) {
-      return state.cardFocusIds.map(function (id) {
-        return CARDS.find(function (card) { return card.id === id; });
-      }).filter(Boolean);
-    }
-    if (state.quizSession && Array.isArray(state.quizSession.cardIds)) {
-      return state.quizSession.cardIds.map(function (id) {
-        return CARDS.find(function (card) { return card.id === id; });
-      }).filter(Boolean);
-    }
     if (state.chapterQuiz) {
       var lesson = null;
       for (var i = 0; i < LESSONS.length; i++) if (LESSONS[i].key === state.chapterQuiz.key) lesson = LESSONS[i];
@@ -321,12 +259,10 @@
   function startChapterQuiz(lesson) {
     state.mode = 'quiz';
     state.chapterQuiz = { key: lesson.key, title: lesson.title };
-    state.quizSession = null;
     state.reviewMode = false;
     state.quiz.score = 0;
     state.quiz.attempted = 0;
     rebuildDeck(false);
-    updateRoute('quiz');
     render();
     window.scrollTo(0, 0);
     toast('챕터 확인 퀴즈 시작! (' + state.deck.length + '문제)');
@@ -343,73 +279,12 @@
     state.quiz.score = 0;
     state.quiz.attempted = 0;
     rebuildDeck(false);
-    updateRoute('study', state.lessonKey);
     render();
     window.scrollTo(0, 0);
   }
 
   function finishChapterQuiz() {
     exitChapterQuiz(true);
-  }
-
-  function addActivity(type, title, detail) {
-    state.activity.unshift({ type: type, title: title, detail: detail || '', at: Date.now() });
-    state.activity = state.activity.slice(0, 30);
-    store.set('activity', state.activity);
-  }
-
-  function dailyHash(value) {
-    var date = new Date();
-    var seed = Number(String(date.getFullYear()) + String(date.getMonth() + 1).padStart(2, '0') + String(date.getDate()).padStart(2, '0'));
-    var x = (Number(value) * 2654435761 + seed * 1013904223) >>> 0;
-    x ^= x >>> 16;
-    return x >>> 0;
-  }
-
-  function adaptiveCards(limit, category) {
-    var pool = category ? CARDS.filter(function (card) { return card.cat === category; }) : CARDS.slice();
-    var wrongSet = new Set(state.wrongIds);
-    return pool.sort(function (a, b) {
-      var ma = state.mastery[a.id] || { attempted: 0, correct: 0 };
-      var mb = state.mastery[b.id] || { attempted: 0, correct: 0 };
-      var pa = (wrongSet.has(a.id) ? -1000 : 0) + (ma.attempted ? (ma.correct / ma.attempted) * 100 : -100) + dailyHash(a.id) / 100000000000;
-      var pb = (wrongSet.has(b.id) ? -1000 : 0) + (mb.attempted ? (mb.correct / mb.attempted) * 100 : -100) + dailyHash(b.id) / 100000000000;
-      return pa - pb;
-    }).slice(0, Math.min(limit || 10, pool.length));
-  }
-
-  function startQuizSession(label, cards) {
-    var sessionCards = (cards || []).filter(Boolean);
-    if (!sessionCards.length) {
-      toast('복습할 문제가 아직 없습니다.');
-      return;
-    }
-    state.mode = 'quiz';
-    state.chapterQuiz = null;
-    state.reviewMode = false;
-    state.quizSession = { label: label, total: sessionCards.length, cardIds: sessionCards.map(function (card) { return card.id; }), done: false, startedAt: Date.now() };
-    state.deck = sessionCards;
-    state.idx = 0;
-    state.flipped = false;
-    state.quiz = { score: 0, attempted: 0, options: [], selected: -1, correct: null };
-    resetQuizQuestion();
-    updateRoute('quiz');
-    render();
-    window.scrollTo(0, 0);
-  }
-
-  function startCardFocus(cards, title) {
-    var focusCards = (cards || []).filter(Boolean);
-    state.mode = 'card';
-    state.quizSession = null;
-    state.deck = focusCards.length ? focusCards : CARDS.slice();
-    state.cardFocusIds = focusCards.length ? focusCards.map(function (card) { return card.id; }) : null;
-    state.idx = 0;
-    state.flipped = false;
-    state.cardDeckTitle = title || '';
-    updateRoute('card');
-    render();
-    window.scrollTo(0, 0);
   }
 
   function rebuildDeck(shuffled) {
@@ -424,22 +299,14 @@
     state.mode = mode;
     state.idx = 0;
     state.flipped = false;
+    state.searchQuery = '';
+    state.glossQuery = '';
     state.lessonKey = null;
     state.chapterQuiz = null;
-    state.quizSession = null;
-    state.cardDeckTitle = '';
-    state.cardFocusIds = null;
     if (mode !== 'quiz') state.reviewMode = false;
-    if (mode === 'card' || mode === 'quiz') rebuildDeck(false);
-    updateRoute(mode);
+    rebuildDeck(false);
     render();
     window.scrollTo(0, 0);
-  }
-
-  function updateRoute(mode, detail) {
-    if (!window.history || !window.history.replaceState) return;
-    var route = '#' + (mode || state.mode) + (detail ? '/' + encodeURIComponent(detail) : '');
-    window.history.replaceState(null, '', route);
   }
 
   /* ---------- 퀴즈 응답 ---------- */
@@ -452,30 +319,22 @@
     state.quiz.attempted += 1;
     state.lifetime.attempted += 1;
     var card = state.deck[state.idx];
-    var mastery = state.mastery[card.id] || { attempted: 0, correct: 0, streak: 0, lastSeen: 0 };
-    mastery.attempted += 1;
-    mastery.lastSeen = Date.now();
     if (opt.isCorrect) {
       state.quiz.score += 1;
       state.lifetime.correct += 1;
-      mastery.correct += 1;
-      mastery.streak = (mastery.streak || 0) + 1;
       // 오답 복습 모드에서 맞히면 오답노트에서 제거
       var pos = state.wrongIds.indexOf(card.id);
-      if ((state.reviewMode || state.quizSession) && pos !== -1) {
+      if (state.reviewMode && pos !== -1) {
         state.wrongIds.splice(pos, 1);
         store.set('wrongIds', state.wrongIds);
         toast('오답노트에서 해결! (' + state.wrongIds.length + '문제 남음)');
       }
     } else {
-      mastery.streak = 0;
       if (state.wrongIds.indexOf(card.id) === -1) {
         state.wrongIds.push(card.id);
         store.set('wrongIds', state.wrongIds);
       }
     }
-    state.mastery[card.id] = mastery;
-    store.set('mastery', state.mastery);
     store.set('stats', state.lifetime);
     render();
   }
@@ -585,175 +444,19 @@
     }).join('');
   }
 
-  /* ---------- 학습 지표와 홈 대시보드 ---------- */
-  function learningMetrics() {
-    var readCount = LESSONS.filter(function (lesson) { return state.readLessons.indexOf(lesson.key) !== -1; }).length;
-    var totalSections = LESSONS.reduce(function (sum, lesson) { return sum + ((lesson.sections && lesson.sections.length) || 0); }, 0);
-    var seenSections = Math.min(totalSections, state.studySeen.length);
-    var attemptedCards = 0;
-    var masteredCards = 0;
-    Object.keys(state.mastery).forEach(function (id) {
-      var item = state.mastery[id];
-      if (!item || !item.attempted) return;
-      attemptedCards += 1;
-      if (item.attempted >= 2 && item.correct / item.attempted >= 0.8) masteredCards += 1;
-    });
-    var lessonPct = totalSections ? seenSections / totalSections : 0;
-    var cardPct = CARDS.length ? attemptedCards / CARDS.length : 0;
-    var masteryPct = CARDS.length ? masteredCards / CARDS.length : 0;
-    var overall = Math.round((lessonPct * 0.5 + cardPct * 0.28 + masteryPct * 0.22) * 100);
-    var accuracy = state.lifetime.attempted ? Math.round((state.lifetime.correct / state.lifetime.attempted) * 100) : 0;
-    return {
-      readCount: readCount,
-      totalLessons: LESSONS.length,
-      seenSections: seenSections,
-      totalSections: totalSections,
-      attemptedCards: attemptedCards,
-      masteredCards: masteredCards,
-      overall: Math.min(100, overall),
-      accuracy: accuracy
-    };
-  }
-
-  function categoryHealth() {
-    var groups = {};
-    CARDS.forEach(function (card) {
-      if (!groups[card.cat]) groups[card.cat] = { category: card.cat, total: 0, attempted: 0, correct: 0, wrong: 0 };
-      var group = groups[card.cat];
-      var mastery = state.mastery[card.id];
-      group.total += 1;
-      if (mastery && mastery.attempted) {
-        group.attempted += mastery.attempted;
-        group.correct += mastery.correct;
-      }
-      if (state.wrongIds.indexOf(card.id) !== -1) group.wrong += 1;
-    });
-    return Object.keys(groups).map(function (key) {
-      var group = groups[key];
-      group.accuracy = group.attempted ? Math.round((group.correct / group.attempted) * 100) : null;
-      group.priority = group.wrong * 100 + (group.accuracy == null ? 30 : 100 - group.accuracy);
-      return group;
-    }).sort(function (a, b) { return b.priority - a.priority || a.category.localeCompare(b.category, 'ko'); });
-  }
-
-  function renderHeaderProgress() {
-    if (!els.headerProgress) return;
-    var metrics = learningMetrics();
-    els.headerProgress.style.setProperty('--header-progress', metrics.overall);
-    els.headerProgress.innerHTML = '<span><strong>' + metrics.overall + '%</strong><small>학습 진도</small></span>';
-  }
-
-  function renderHomeMode() {
-    els.main.classList.add('scroll-top');
-    var metrics = learningMetrics();
-    var daily = adaptiveCards(10);
-    var wrongCount = daily.filter(function (card) { return state.wrongIds.indexOf(card.id) !== -1; }).length;
-    var newCount = daily.filter(function (card) { return !(state.mastery[card.id] && state.mastery[card.id].attempted); }).length;
-    var revisitCount = Math.max(0, daily.length - wrongCount - newCount);
-    var continueLesson = LESSONS.find(function (lesson) { return lesson.key === state.lastLesson; }) ||
-      LESSONS.find(function (lesson) { return state.readLessons.indexOf(lesson.key) === -1; }) || LESSONS[0];
-    var continueSeen = continueLesson ? lessonSeenCount(continueLesson) : 0;
-    var weak = categoryHealth().slice(0, 4);
-    var tracks = (typeof LEARNING_TRACKS !== 'undefined' ? LEARNING_TRACKS : []).filter(function (track) { return track.key !== 'all'; });
-    var trackColors = ['#36d3ff', '#70f0c3', '#8b7cff', '#4e9cff'];
-
-    var tracksHtml = tracks.map(function (track, index) {
-      var lessons = LESSONS.filter(function (lesson) { return lesson.track === track.key; });
-      var completed = lessons.filter(function (lesson) { return state.readLessons.indexOf(lesson.key) !== -1; }).length;
-      var partial = lessons.reduce(function (sum, lesson) {
-        var count = lessonSeenCount(lesson);
-        return sum + (lesson.sections && lesson.sections.length ? count / lesson.sections.length : 0);
-      }, 0);
-      var pct = lessons.length ? Math.round((partial / lessons.length) * 100) : 0;
-      return '<div class="track-row" style="--track-progress:' + pct + '%;--track-color:' + trackColors[index % trackColors.length] + '">' +
-        '<span>' + esc(track.title) + '</span><i></i><b>' + completed + '/' + lessons.length + '</b></div>';
-    }).join('');
-
-    var focusHtml = weak.map(function (group, index) {
-      var detail = group.attempted ? '정답률 ' + group.accuracy + '% · 오답 ' + group.wrong : '아직 푼 문제가 없는 영역';
-      return '<button class="focus-item" data-focus-cat="' + esc(group.category) + '">' +
-        '<span class="focus-rank">' + String(index + 1).padStart(2, '0') + '</span>' +
-        '<span class="focus-copy"><strong>' + esc(group.category) + '</strong><span>' + detail + '</span></span>' + icon('chevronRight') + '</button>';
-    }).join('');
-
-    els.content.innerHTML =
-      '<div class="home-dashboard">' +
-        '<section class="home-hero">' +
-          '<div class="home-copy"><span class="home-kicker">PERSONAL MARKET SCHOOL</span>' +
-            '<h2>시장을 외우지 말고<br><em>구조로 읽으세요.</em></h2>' +
-            '<p>금리·유동성·실적·수급을 따로 암기하지 않고, 하나의 인과관계로 연결해 판단하는 투자 학습 시스템입니다.</p>' +
-            '<div class="home-primary-actions">' +
-              '<button class="action-primary" id="home-daily">' + icon('zap') + ' 오늘의 10문제</button>' +
-              '<button class="action-secondary" id="home-continue">' + icon('bookOpen') + ' 이어서 학습</button>' +
-            '</div>' +
-          '</div>' +
-          '<aside class="home-session-card" aria-label="오늘의 학습 구성">' +
-            '<div class="home-session-head"><span>TODAY\'S SESSION</span><b>약 7분</b></div>' +
-            '<div class="session-orbit"><div><span><strong>' + daily.length + '</strong><small>QUESTIONS</small></span></div></div>' +
-            '<ul class="home-session-list">' +
-              '<li><span>오답 다시 보기</span><b>' + wrongCount + '</b></li>' +
-              '<li><span>새 개념 만나기</span><b>' + newCount + '</b></li>' +
-              '<li><span>기억 강화하기</span><b>' + revisitCount + '</b></li>' +
-            '</ul>' +
-          '</aside>' +
-        '</section>' +
-
-        '<section class="home-stats" aria-label="학습 현황">' +
-          '<div class="home-stat"><div class="home-stat-top">' + icon('layers') + '<strong>' + metrics.overall + '%</strong></div><span>전체 학습 진도</span><i style="--value:' + metrics.overall + '%"></i></div>' +
-          '<div class="home-stat"><div class="home-stat-top">' + icon('target') + '<strong>' + metrics.accuracy + '%</strong></div><span>누적 퀴즈 정답률</span><i style="--value:' + metrics.accuracy + '%"></i></div>' +
-          '<div class="home-stat"><div class="home-stat-top">' + icon('checkCircle') + '<strong>' + metrics.masteredCards + '</strong></div><span>숙련 카드 · ' + metrics.attemptedCards + '장 경험</span><i style="--value:' + Math.round((metrics.masteredCards / CARDS.length) * 100) + '%"></i></div>' +
-          '<div class="home-stat"><div class="home-stat-top">' + icon('repeat') + '<strong>' + state.wrongIds.length + '</strong></div><span>해결할 오답</span><i style="--value:' + Math.min(100, state.wrongIds.length * 5) + '%"></i></div>' +
-        '</section>' +
-
-        '<div class="home-grid">' +
-          '<section class="home-panel"><header class="home-panel-head"><div><span>LEARNING PATH</span><h3>커리큘럼 이어가기</h3></div><button data-home-mode="study">전체 보기</button></header>' +
-            (continueLesson ? '<button class="continue-card" id="home-lesson" data-lesson="' + esc(continueLesson.key) + '"><span class="continue-card-icon">' + icon(LESSON_ICONS[continueLesson.key] || 'bookOpen') + '</span><span class="continue-card-copy"><small>' + (continueSeen ? '이어서 학습' : '추천 시작') + '</small><strong>' + esc(continueLesson.title) + '</strong><span>' + continueSeen + '/' + continueLesson.sections.length + ' 섹션 · 약 ' + continueLesson.minutes + '분</span></span>' + icon('chevronRight') + '</button>' : '') +
-            '<div class="track-map">' + tracksHtml + '</div>' +
-          '</section>' +
-          '<section class="home-panel"><header class="home-panel-head"><div><span>FOCUS RADAR</span><h3>우선 복습할 영역</h3></div><button id="home-review">오답 복습</button></header>' +
-            '<div class="focus-list">' + (focusHtml || '<div class="focus-empty">퀴즈를 풀면 취약 영역을 자동으로 분석합니다.</div>') + '</div>' +
-          '</section>' +
-        '</div>' +
-
-        '<section class="home-tools" aria-label="빠른 도구">' +
-          '<button class="home-tool" id="home-card-focus"><span>' + icon('bookOpen') + '</span><span><strong>오늘의 카드</strong><small>취약·미학습 개념을 섞어 빠르게 훑기</small></span></button>' +
-          '<button class="home-tool" id="home-search"><span>' + icon('search') + '</span><span><strong>통합 검색</strong><small>카드·챕터·용어를 한 번에 찾기</small></span></button>' +
-          '<button class="home-tool" data-home-mode="list"><span>' + icon('bookmark') + '</span><span><strong>나의 자료실</strong><small>전체 인사이트와 저장한 카드를 탐색</small></span></button>' +
-        '</section>' +
-      '</div>';
-
-    document.getElementById('home-daily').addEventListener('click', function () { startQuizSession('오늘의 10문제', adaptiveCards(10)); });
-    document.getElementById('home-continue').addEventListener('click', function () { if (continueLesson) { state.mode = 'study'; openLesson(continueLesson.key); } });
-    var lessonButton = document.getElementById('home-lesson');
-    if (lessonButton) lessonButton.addEventListener('click', function () { state.mode = 'study'; openLesson(lessonButton.dataset.lesson); });
-    document.getElementById('home-review').addEventListener('click', function () {
-      startQuizSession('오답 집중 복습', CARDS.filter(function (card) { return state.wrongIds.indexOf(card.id) !== -1; }).slice(0, 20));
-    });
-    document.getElementById('home-card-focus').addEventListener('click', function () { startCardFocus(adaptiveCards(20), '오늘의 카드'); });
-    document.getElementById('home-search').addEventListener('click', openGlobalSearch);
-    els.content.querySelectorAll('[data-home-mode]').forEach(function (button) { button.addEventListener('click', function () { switchMode(button.dataset.homeMode); }); });
-    els.content.querySelectorAll('[data-focus-cat]').forEach(function (button) {
-      button.addEventListener('click', function () { startQuizSession(button.dataset.focusCat + ' 집중 퀴즈', adaptiveCards(10, button.dataset.focusCat)); });
-    });
-  }
-
   /* ---------- 렌더링 ---------- */
   function render() {
     // innerHTML 전체 교체로 키보드 포커스가 유실되지 않도록 id 기준으로 복원
     var focusId = document.activeElement && document.activeElement.id;
     if (lessonObserver) { lessonObserver.disconnect(); lessonObserver = null; }
-    els.content.classList.toggle('content--home', state.mode === 'home');
     els.content.classList.toggle('content--study', state.mode === 'study');
-    els.content.classList.toggle('content--library', state.mode === 'list' || state.mode === 'glossary');
     renderNav();
-    if (state.mode === 'home') renderHomeMode();
-    else if (state.mode === 'card') renderCardMode();
+    if (state.mode === 'card') renderCardMode();
     else if (state.mode === 'quiz') renderQuizMode();
     else if (state.mode === 'list') renderListMode();
     else if (state.mode === 'study') renderStudyMode();
     else renderGlossaryMode();
     renderFooter();
-    renderHeaderProgress();
     syncChromeHeights();
     if (focusId) {
       var f = document.getElementById(focusId);
@@ -764,7 +467,7 @@
   function renderNav() {
     var buttons = els.modeSwitch.querySelectorAll('.mode-btn');
     buttons.forEach(function (btn) {
-      var active = btn.dataset.mode === state.mode || (btn.dataset.mode === 'list' && state.mode === 'glossary');
+      var active = btn.dataset.mode === state.mode;
       btn.classList.toggle('active', active);
       btn.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
@@ -781,7 +484,6 @@
   function goGlossary(term) {
     switchMode('glossary');
     state.glossQuery = term;
-    updateRoute('glossary', term);
     render();
     window.scrollTo(0, 0);
   }
@@ -821,31 +523,16 @@
     });
   }
 
-  function toggleBookmark(cardId) {
-    var index = state.bookmarks.indexOf(cardId);
-    if (index === -1) {
-      state.bookmarks.push(cardId);
-      toast('카드를 자료실에 저장했습니다.');
-    } else {
-      state.bookmarks.splice(index, 1);
-      toast('저장을 해제했습니다.');
-    }
-    store.set('bookmarks', state.bookmarks);
-  }
-
   function renderCardMode() {
     els.main.classList.remove('scroll-top');
     var card = state.deck[state.idx];
-    var saved = state.bookmarks.indexOf(card.id) !== -1;
-    store.set('lastCard', card.id);
     var deep = deepPanelHtml(card, 'card');
     els.content.innerHTML =
-      (state.cardDeckTitle ? '<div class="card-context"><span>' + icon('zap') + esc(state.cardDeckTitle) + '</span><button id="card-context-all">전체 카드로 전환</button></div>' : '') +
       '<div class="scene" id="scene" role="button" tabindex="0" aria-label="카드 뒤집기">' +
         '<div class="card3d' + (state.flipped ? ' flipped' : '') + '" id="card3d">' +
           '<div class="card-face card-front">' +
             '<div class="card-head">' + catChipHtml(card, 'cat-chip') +
-              '<div class="card-head-tools"><button class="card-save' + (saved ? ' saved' : '') + '" id="card-save" aria-label="' + (saved ? '저장 해제' : '카드 저장') + '" aria-pressed="' + (saved ? 'true' : 'false') + '">' + icon('bookmark') + '</button><span class="card-num">#' + card.id + '</span></div></div>' +
+              '<span class="card-num">#' + card.id + '</span></div>' +
             '<div class="card-body"><h2 class="card-q">' + esc(card.q) + '</h2></div>' +
             '<div class="card-foot"><div class="flip-hint">' + icon('arrowLeftRight') + ' Tap to flip</div></div>' +
           '</div>' +
@@ -860,17 +547,11 @@
 
     var scene = document.getElementById('scene');
     var aiBtn = document.getElementById('ai-btn');
-    var saveBtn = document.getElementById('card-save');
-    var deepToggle = document.getElementById('deep-toggle-card');
-    saveBtn.tabIndex = state.flipped ? -1 : 0;
-    if (deepToggle) deepToggle.tabIndex = state.flipped ? 0 : -1;
     var flip = function () {
       state.flipped = !state.flipped;
       document.getElementById('card3d').classList.toggle('flipped', state.flipped);
       // 시각적으로 숨겨진 면의 버튼이 Tab으로 잡히지 않도록
       aiBtn.tabIndex = state.flipped ? 0 : -1;
-      saveBtn.tabIndex = state.flipped ? -1 : 0;
-      if (deepToggle) deepToggle.tabIndex = state.flipped ? 0 : -1;
     };
     scene.addEventListener('click', flip);
     scene.addEventListener('keydown', function (e) {
@@ -880,23 +561,11 @@
       e.stopPropagation();
       openAiModal(card);
     });
-    saveBtn.addEventListener('click', function (e) {
-      e.stopPropagation();
-      toggleBookmark(card.id);
-      saveBtn.classList.toggle('saved', state.bookmarks.indexOf(card.id) !== -1);
-      saveBtn.setAttribute('aria-pressed', state.bookmarks.indexOf(card.id) !== -1 ? 'true' : 'false');
-    });
-    var allButton = document.getElementById('card-context-all');
-    if (allButton) allButton.addEventListener('click', function () { state.cardDeckTitle = ''; state.cardFocusIds = null; state.deck = CARDS.slice(); state.idx = 0; render(); });
     wireDeep('card');
   }
 
   function renderQuizMode() {
     els.main.classList.remove('scroll-top');
-    if (state.quizSession && state.quizSession.done) {
-      renderQuizSummary();
-      return;
-    }
     var card = state.deck[state.idx];
     if (!state.quiz.options.length) resetQuizQuestion();
 
@@ -934,7 +603,6 @@
 
     els.content.innerHTML =
       '<div class="quiz-wrap">' +
-        (state.quizSession ? '<div class="quiz-session-banner"><span>' + icon('zap') + esc(state.quizSession.label) + '</span><b>' + (state.idx + 1) + ' / ' + state.deck.length + '</b></div>' : '') +
         '<div class="quiz-topbar">' +
           '<div class="quiz-score">' + icon('trophy') +
             '<span>SCORE: ' + state.quiz.score + '/' + state.quiz.attempted +
@@ -965,122 +633,83 @@
     wireDeep('quiz');
   }
 
-  function renderQuizSummary() {
-    var total = Math.max(1, state.quiz.attempted);
-    var rate = Math.round((state.quiz.score / total) * 100);
-    var tone = rate >= 80 ? '완벽한 흐름입니다' : rate >= 60 ? '좋습니다. 틀린 개념만 다듬어보세요' : '핵심 개념을 한 번 더 연결해보세요';
-    els.content.innerHTML =
-      '<section class="quiz-summary">' +
-        '<span class="quiz-summary-kicker">SESSION COMPLETE</span>' +
-        '<div class="quiz-summary-ring" style="--score:' + rate + '"><div><strong>' + rate + '%</strong><small>' + state.quiz.score + ' / ' + state.quiz.attempted + ' 정답</small></div></div>' +
-        '<h2>' + esc(tone) + '</h2>' +
-        '<p>' + esc(state.quizSession.label) + '을 마쳤습니다. 오답은 자동으로 복습 목록에 반영되었습니다.</p>' +
-        '<div class="quiz-summary-stats"><span><b>' + state.wrongIds.length + '</b>남은 오답</span><span><b>' + learningMetrics().accuracy + '%</b>누적 정답률</span><span><b>' + learningMetrics().masteredCards + '</b>숙련 카드</span></div>' +
-        '<div class="quiz-summary-actions">' +
-          '<button class="action-primary" id="summary-retry">' + icon('repeat') + ' 같은 구성 다시 풀기</button>' +
-          '<button class="action-secondary" id="summary-home">' + icon('home') + ' 홈으로</button>' +
-        '</div>' +
-      '</section>';
-    document.getElementById('summary-retry').addEventListener('click', function () { startQuizSession(state.quizSession.label, shuffleArray(state.deck)); });
-    document.getElementById('summary-home').addEventListener('click', function () { switchMode('home'); });
-  }
-
-  function libraryHeaderHtml(active, count) {
-    return '<header class="library-head">' +
-      '<div class="library-head-copy"><span>KNOWLEDGE LIBRARY</span><h2>시장 지식 탐색</h2><p>카드와 용어를 검색하고, 중요한 인사이트는 저장해 나만의 복습 자료실을 만드세요.</p></div>' +
-      '<div><div class="library-tabs" aria-label="탐색 자료 선택">' +
-        '<button class="library-tab' + (active === 'cards' ? ' active' : '') + '" data-library-view="list">' + icon('fileText') + ' 인사이트</button>' +
-        '<button class="library-tab' + (active === 'glossary' ? ' active' : '') + '" data-library-view="glossary">' + icon('gradCap') + ' 용어사전</button>' +
-      '</div><div class="library-meta">' + count + ' RESULTS</div></div>' +
-    '</header>';
-  }
-
-  function filteredCards() {
-    var q = state.searchQuery.trim().toLowerCase();
-    return CARDS.filter(function (item) {
-      var matchSearch = !q || item.q.toLowerCase().indexOf(q) !== -1 || item.a.toLowerCase().indexOf(q) !== -1 || item.cat.toLowerCase().indexOf(q) !== -1;
-      var matchCat = state.catFilter === 'All' || item.cat === state.catFilter || (state.catFilter === 'Saved' && state.bookmarks.indexOf(item.id) !== -1);
-      return matchSearch && matchCat;
-    });
-  }
-
-  function listItemHtml(item) {
-    var cat = catOf(item);
-    var saved = state.bookmarks.indexOf(item.id) !== -1;
-    return '<article class="list-item">' +
-      '<div class="list-item-head">' +
-        '<div class="list-item-cat" style="color:' + cat.color + ';background:' + cat.bg + ';border-color:' + cat.border + '">' + icon(cat.icon) + ' ' + esc(item.cat) + '</div>' +
-        '<span class="list-item-num">#' + item.id + '</span></div>' +
-      '<div class="list-item-q">Q. ' + esc(item.q) + '</div>' +
-      '<div class="list-item-a">' + esc(item.a) + '</div>' +
-      '<div class="list-item-actions">' +
-        '<button class="list-action' + (saved ? ' saved' : '') + '" data-save-card="' + item.id + '">' + icon('bookmark') + (saved ? ' 저장됨' : ' 저장') + '</button>' +
-        '<button class="list-action" data-open-card="' + item.id + '">' + icon('bookOpen') + ' 카드로 보기</button>' +
-      '</div>' +
-    '</article>';
-  }
-
-  function wireLibraryTabs() {
-    els.content.querySelectorAll('[data-library-view]').forEach(function (button) {
-      button.addEventListener('click', function () { switchMode(button.dataset.libraryView); });
-    });
-  }
-
-  function wireListActions() {
-    els.content.querySelectorAll('[data-save-card]').forEach(function (button) {
-      button.addEventListener('click', function () {
-        toggleBookmark(Number(button.dataset.saveCard));
-        refreshListItems();
-      });
-    });
-    els.content.querySelectorAll('[data-open-card]').forEach(function (button) {
-      button.addEventListener('click', function () {
-        var id = Number(button.dataset.openCard);
-        state.mode = 'card';
-        state.cardFocusIds = null;
-        state.cardDeckTitle = '';
-        state.deck = CARDS.slice();
-        state.idx = Math.max(0, state.deck.findIndex(function (card) { return card.id === id; }));
-        state.flipped = false;
-        updateRoute('card', id);
-        render();
-        window.scrollTo(0, 0);
-      });
-    });
-  }
-
   function renderListMode() {
     els.main.classList.add('scroll-top');
-    var cats = ['All', 'Saved'];
-    CARDS.forEach(function (card) { if (cats.indexOf(card.cat) === -1) cats.push(card.cat); });
-    var filtered = filteredCards();
-    var chipsHtml = cats.map(function (cat) {
-      var label = cat === 'All' ? '전체' : cat === 'Saved' ? '저장됨 ' + state.bookmarks.length : cat;
-      return '<button class="cat-filter' + (state.catFilter === cat ? ' active' : '') + '" data-cat="' + esc(cat) + '">' + esc(label) + '</button>';
-    }).join('');
-    var itemsHtml = filtered.length ? filtered.map(listItemHtml).join('') : '<div class="empty-state">' + icon('search') + '<p>조건에 맞는 인사이트가 없습니다.</p></div>';
+    var cats = ['All'];
+    CARDS.forEach(function (c) { if (cats.indexOf(c.cat) === -1) cats.push(c.cat); });
 
-    els.content.innerHTML = '<div class="list-wrap library-shell">' +
-      libraryHeaderHtml('cards', filtered.length) +
-      '<div class="list-filters"><div class="search-box">' + icon('search') + '<input type="search" id="search-input" placeholder="질문·답변·카테고리 검색" value="' + esc(state.searchQuery) + '"></div><div class="cat-filters">' + chipsHtml + '</div></div>' +
-      '<div class="list-items">' + itemsHtml + '</div></div>';
+    var q = state.searchQuery.toLowerCase();
+    var filtered = CARDS.filter(function (item) {
+      var matchSearch = item.q.toLowerCase().indexOf(q) !== -1 || item.a.toLowerCase().indexOf(q) !== -1;
+      var matchCat = state.catFilter === 'All' || item.cat === state.catFilter;
+      return matchSearch && matchCat;
+    });
+
+    var chipsHtml = cats.map(function (cat) {
+      return '<button class="cat-filter' + (state.catFilter === cat ? ' active' : '') +
+        '" data-cat="' + esc(cat) + '">' + esc(cat) + '</button>';
+    }).join('');
+
+    var itemsHtml = filtered.length
+      ? filtered.map(function (item) {
+          var cat = catOf(item);
+          return '<div class="list-item">' +
+            '<div class="list-item-head">' +
+              '<div class="list-item-cat" style="color:' + cat.color + ';background:' + cat.bg + ';border-color:' + cat.border + '">' +
+                icon(cat.icon) + ' ' + esc(item.cat) + '</div>' +
+              '<span class="list-item-num">#' + item.id + '</span></div>' +
+            '<div class="list-item-q">Q. ' + esc(item.q) + '</div>' +
+            '<div class="list-item-a">' + esc(item.a) + '</div>' +
+          '</div>';
+        }).join('')
+      : '<div class="empty-state">' + icon('search') + '<p>일치하는 인사이트가 없습니다.</p></div>';
+
+    els.content.innerHTML =
+      '<div class="list-wrap">' +
+        '<div class="list-filters">' +
+          '<div class="search-box">' + icon('search') +
+            '<input type="text" id="search-input" placeholder="키워드 검색... (총 ' + CARDS.length + '장)" value="' + esc(state.searchQuery) + '"></div>' +
+          '<div class="cat-filters">' + chipsHtml + '</div>' +
+        '</div>' +
+        '<div class="list-items">' + itemsHtml + '</div>' +
+      '</div>';
 
     var input = document.getElementById('search-input');
-    input.addEventListener('input', function () { state.searchQuery = input.value; refreshListItems(); });
-    els.content.querySelectorAll('.cat-filter').forEach(function (button) {
-      button.addEventListener('click', function () { state.catFilter = button.dataset.cat; renderListMode(); });
+    input.addEventListener('input', function () {
+      state.searchQuery = input.value;
+      // 입력 포커스 유지를 위해 목록만 다시 그린다
+      refreshListItems();
     });
-    wireLibraryTabs();
-    wireListActions();
+    els.content.querySelectorAll('.cat-filter').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        state.catFilter = btn.dataset.cat;
+        renderListMode();
+      });
+    });
   }
 
   function refreshListItems() {
-    var filtered = filteredCards();
+    var q = state.searchQuery.toLowerCase();
+    var filtered = CARDS.filter(function (item) {
+      var matchSearch = item.q.toLowerCase().indexOf(q) !== -1 || item.a.toLowerCase().indexOf(q) !== -1;
+      var matchCat = state.catFilter === 'All' || item.cat === state.catFilter;
+      return matchSearch && matchCat;
+    });
+    var itemsHtml = filtered.length
+      ? filtered.map(function (item) {
+          var cat = catOf(item);
+          return '<div class="list-item">' +
+            '<div class="list-item-head">' +
+              '<div class="list-item-cat" style="color:' + cat.color + ';background:' + cat.bg + ';border-color:' + cat.border + '">' +
+                icon(cat.icon) + ' ' + esc(item.cat) + '</div>' +
+              '<span class="list-item-num">#' + item.id + '</span></div>' +
+            '<div class="list-item-q">Q. ' + esc(item.q) + '</div>' +
+            '<div class="list-item-a">' + esc(item.a) + '</div>' +
+          '</div>';
+        }).join('')
+      : '<div class="empty-state">' + icon('search') + '<p>일치하는 인사이트가 없습니다.</p></div>';
     var listEl = els.content.querySelector('.list-items');
-    if (listEl) listEl.innerHTML = filtered.length ? filtered.map(listItemHtml).join('') : '<div class="empty-state">' + icon('search') + '<p>조건에 맞는 인사이트가 없습니다.</p></div>';
-    var meta = els.content.querySelector('.library-meta');
-    if (meta) meta.textContent = filtered.length + ' RESULTS';
-    wireListActions();
+    if (listEl) listEl.innerHTML = itemsHtml;
   }
 
   /* ---------- 학습 모드: 시각화 컴포넌트 ---------- */
@@ -1438,7 +1067,6 @@
     state.lessonKey = key;
     state.lastLesson = key;
     store.set('lastLesson', key);
-    updateRoute('study', key);
     render();
     window.scrollTo(0, 0);
   }
@@ -1666,7 +1294,6 @@
 
     document.getElementById('lesson-back').addEventListener('click', function () {
       state.lessonKey = null;
-      updateRoute('study');
       render();
       window.scrollTo(0, 0);
     });
@@ -1675,7 +1302,6 @@
     document.getElementById('lesson-done').addEventListener('click', function () {
       var nowRead = state.readLessons.indexOf(l.key) === -1;
       markLessonRead(l.key, nowRead);
-      if (nowRead) addActivity('lesson', l.title, '완독');
       render();
       if (nowRead) toast('챕터를 완독했습니다!');
     });
@@ -1715,16 +1341,13 @@
       : '<div class="empty-state" style="grid-column:1/-1">' + icon('search') + '<p>일치하는 용어가 없습니다.</p></div>';
 
     els.content.innerHTML =
-      '<div class="list-wrap library-shell">' +
-        libraryHeaderHtml('glossary', filtered.length) +
+      '<div class="list-wrap">' +
         '<div class="list-filters">' +
           '<div class="search-box">' + icon('search') +
-            '<input type="search" id="gloss-input" placeholder="한글·영문·설명 검색" value="' + esc(state.glossQuery) + '"></div>' +
+            '<input type="text" id="gloss-input" placeholder="용어 검색... (총 ' + GLOSSARY.length + '개)" value="' + esc(state.glossQuery) + '"></div>' +
         '</div>' +
         '<div class="gloss-grid" id="gloss-grid">' + itemsHtml + '</div>' +
       '</div>';
-
-    wireLibraryTabs();
 
     var input = document.getElementById('gloss-input');
     input.addEventListener('input', function () {
@@ -1745,163 +1368,18 @@
             '</div>';
           }).join('')
         : '<div class="empty-state" style="grid-column:1/-1">' + icon('search') + '<p>일치하는 용어가 없습니다.</p></div>';
-      var meta = els.content.querySelector('.library-meta');
-      if (meta) meta.textContent = f2.length + ' RESULTS';
-    });
-  }
-
-  /* ---------- 카드·챕터·용어 통합 검색 ---------- */
-  function searchResultHtml(kind, key, title, subtitle, iconName, meta) {
-    return '<button class="search-result" data-search-kind="' + kind + '" data-search-key="' + esc(key) + '">' +
-      '<span class="search-result-icon">' + icon(iconName) + '</span>' +
-      '<span class="search-result-copy"><strong>' + esc(title) + '</strong><span>' + esc(subtitle || '') + '</span></span>' +
-      '<small>' + esc(meta || '') + '</small></button>';
-  }
-
-  function updateGlobalSearchResults() {
-    var body = document.getElementById('search-command-body');
-    if (!body) return;
-    var query = state.globalSearch.query.trim().toLowerCase();
-    var cardResults;
-    var lessonResults;
-    var glossaryResults;
-
-    if (!query) {
-      cardResults = adaptiveCards(4);
-      lessonResults = LESSONS.filter(function (lesson) { return state.readLessons.indexOf(lesson.key) === -1; }).slice(0, 3);
-      glossaryResults = [];
-    } else {
-      cardResults = CARDS.filter(function (card) {
-        return [card.q, card.a, card.cat].join(' ').toLowerCase().indexOf(query) !== -1;
-      }).slice(0, 6);
-      lessonResults = LESSONS.filter(function (lesson) {
-        var text = [lesson.title, lesson.tagline, lesson.level].concat(lesson.tags || []).join(' ').toLowerCase();
-        return text.indexOf(query) !== -1;
-      }).slice(0, 5);
-      glossaryResults = GLOSSARY.filter(function (term) {
-        return [term.term, term.en || '', term.def, term.tip || ''].join(' ').toLowerCase().indexOf(query) !== -1;
-      }).slice(0, 6);
-    }
-
-    var html = '';
-    if (lessonResults.length) {
-      html += '<div class="search-group-label"><span>' + (query ? '챕터' : '다음 학습 추천') + '</span><span>' + lessonResults.length + '</span></div>' +
-        lessonResults.map(function (lesson) { return searchResultHtml('lesson', lesson.key, lesson.title, lesson.tagline, LESSON_ICONS[lesson.key] || 'library', lesson.minutes + '분'); }).join('');
-    }
-    if (cardResults.length) {
-      html += '<div class="search-group-label"><span>' + (query ? '인사이트 카드' : '오늘의 카드 추천') + '</span><span>' + cardResults.length + '</span></div>' +
-        cardResults.map(function (card) { return searchResultHtml('card', card.id, card.q, card.a, catOf(card).icon, '#' + card.id); }).join('');
-    }
-    if (glossaryResults.length) {
-      html += '<div class="search-group-label"><span>용어사전</span><span>' + glossaryResults.length + '</span></div>' +
-        glossaryResults.map(function (term) { return searchResultHtml('glossary', term.term, term.term, term.def, 'gradCap', term.en || ''); }).join('');
-    }
-    if (!html) html = '<div class="search-empty">일치하는 결과가 없습니다.<br>조금 더 짧은 단어로 검색해보세요.</div>';
-    body.innerHTML = html;
-    body.querySelectorAll('[data-search-kind]').forEach(function (button) {
-      button.addEventListener('click', function () { navigateSearchResult(button.dataset.searchKind, button.dataset.searchKey); });
-    });
-  }
-
-  function navigateSearchResult(kind, key) {
-    closeGlobalSearch();
-    if (kind === 'lesson') {
-      state.mode = 'study';
-      openLesson(key);
-    } else if (kind === 'card') {
-      var id = Number(key);
-      state.mode = 'card';
-      state.cardFocusIds = null;
-      state.cardDeckTitle = '';
-      state.deck = CARDS.slice();
-      state.idx = Math.max(0, state.deck.findIndex(function (card) { return card.id === id; }));
-      state.flipped = false;
-      updateRoute('card', id);
-      render();
-      window.scrollTo(0, 0);
-    } else if (kind === 'glossary') {
-      state.mode = 'glossary';
-      state.glossQuery = key;
-      updateRoute('glossary', key);
-      render();
-      window.scrollTo(0, 0);
-    }
-  }
-
-  var globalSearchOpener = null;
-
-  function openGlobalSearch() {
-    if (state.ai.open) return;
-    globalSearchOpener = document.activeElement;
-    state.globalSearch.open = true;
-    state.globalSearch.query = '';
-    document.body.style.overflow = 'hidden';
-    renderGlobalSearch();
-  }
-
-  function closeGlobalSearch() {
-    state.globalSearch.open = false;
-    state.globalSearch.query = '';
-    document.body.style.overflow = '';
-    els.searchRoot.innerHTML = '';
-    if (globalSearchOpener && document.contains(globalSearchOpener) && typeof globalSearchOpener.focus === 'function') globalSearchOpener.focus();
-    else {
-      var trigger = document.getElementById('global-search-btn');
-      if (trigger) trigger.focus();
-    }
-    globalSearchOpener = null;
-  }
-
-  function renderGlobalSearch() {
-    if (!state.globalSearch.open) { els.searchRoot.innerHTML = ''; return; }
-    els.searchRoot.innerHTML =
-      '<div class="search-overlay" id="search-overlay">' +
-        '<section class="search-command" role="dialog" aria-modal="true" aria-label="전체 검색">' +
-          '<div class="search-command-head">' + icon('search') + '<input id="global-search-input" type="search" autocomplete="off" placeholder="금리, 반도체, 시장 폭처럼 검색하세요"><button class="search-close" id="search-close" aria-label="검색 닫기">' + icon('x') + '</button></div>' +
-          '<div class="search-command-body" id="search-command-body"></div>' +
-          '<div class="search-command-foot"><span><kbd>↑↓</kbd> 탐색</span><span><kbd>Enter</kbd> 열기</span><span><kbd>Esc</kbd> 닫기</span></div>' +
-        '</section>' +
-      '</div>';
-    updateGlobalSearchResults();
-    var input = document.getElementById('global-search-input');
-    input.focus();
-    input.addEventListener('input', function () { state.globalSearch.query = input.value; updateGlobalSearchResults(); });
-    document.getElementById('search-close').addEventListener('click', closeGlobalSearch);
-    document.getElementById('search-overlay').addEventListener('click', function (event) { if (event.target === this) closeGlobalSearch(); });
-    els.searchRoot.querySelector('.search-command').addEventListener('keydown', function (event) {
-      var results = Array.prototype.slice.call(document.querySelectorAll('.search-result'));
-      if (event.key === 'Tab') {
-        var focusables = Array.prototype.slice.call(this.querySelectorAll('button, input'));
-        var first = focusables[0];
-        var last = focusables[focusables.length - 1];
-        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-        return;
-      }
-      if (!results.length) return;
-      var current = results.indexOf(document.activeElement);
-      if (event.key === 'ArrowDown') {
-        event.preventDefault();
-        results[current < 0 ? 0 : (current + 1) % results.length].focus();
-      } else if (event.key === 'ArrowUp') {
-        event.preventDefault();
-        results[current <= 0 ? results.length - 1 : current - 1].focus();
-      } else if (event.key === 'Enter' && document.activeElement === input) {
-        event.preventDefault();
-        results[0].click();
-      }
     });
   }
 
   function renderFooter() {
-    var show = (state.mode === 'card' || state.mode === 'quiz') && !(state.quizSession && state.quizSession.done);
+    var show = state.mode === 'card' || state.mode === 'quiz';
     els.footer.classList.toggle('hidden', !show);
     if (!show) return;
 
     els.progressFill.style.width = (((state.idx + 1) / state.deck.length) * 100) + '%';
 
     var nextLabel;
-    if (state.mode === 'quiz' && ((state.chapterQuiz || state.quizSession) && state.idx === state.deck.length - 1)) {
+    if (state.mode === 'quiz' && state.chapterQuiz && state.idx === state.deck.length - 1) {
       nextLabel = '결과 보기';
     } else if (state.mode === 'quiz') {
       nextLabel = state.quiz.selected !== -1 ? 'Next' : 'Skip';
@@ -2049,31 +1527,21 @@
 
   /* ---------- 키보드 ---------- */
   document.addEventListener('keydown', function (e) {
-    if (state.globalSearch.open) {
-      if (e.key === 'Escape') closeGlobalSearch();
-      return;
-    }
     if (state.ai.open) {
       if (e.key === 'Escape') closeAiModal();
       return;
     }
     var tag = (document.activeElement && document.activeElement.tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-    if (e.key === '/') {
-      e.preventDefault();
-      openGlobalSearch();
-      return;
-    }
     if (state.mode === 'study') {
       if (e.key === 'Escape' && state.lessonKey) {
         state.lessonKey = null;
-        updateRoute('study');
         render();
         window.scrollTo(0, 0);
       }
       return;
     }
-    if (state.mode === 'home' || state.mode === 'list' || state.mode === 'glossary') return;
+    if (state.mode === 'list' || state.mode === 'glossary') return;
 
     if (state.mode === 'card' && e.code === 'Space') {
       e.preventDefault();
@@ -2082,14 +1550,10 @@
       if (c3d) c3d.classList.toggle('flipped', state.flipped);
       var aiB = document.getElementById('ai-btn');
       if (aiB) aiB.tabIndex = state.flipped ? 0 : -1;
-      var saveB = document.getElementById('card-save');
-      if (saveB) saveB.tabIndex = state.flipped ? -1 : 0;
-      var deepB = document.getElementById('deep-toggle-card');
-      if (deepB) deepB.tabIndex = state.flipped ? 0 : -1;
-    } else if ((state.mode === 'card' || state.mode === 'quiz') && e.code === 'ArrowRight') {
+    } else if (e.code === 'ArrowRight') {
       e.preventDefault();
       next();
-    } else if ((state.mode === 'card' || state.mode === 'quiz') && e.code === 'ArrowLeft') {
+    } else if (e.code === 'ArrowLeft') {
       e.preventDefault();
       prev();
     } else if (state.mode === 'quiz' && (e.key === '1' || e.key === '2')) {
@@ -2097,64 +1561,20 @@
     }
   });
 
-  function applyInitialRoute() {
-    var raw = decodeURIComponent((window.location.hash || '#home').slice(1));
-    var parts = raw.split('/');
-    var mode = parts[0];
-    var valid = ['home', 'study', 'card', 'quiz', 'list', 'glossary'];
-    if (valid.indexOf(mode) === -1) mode = 'home';
-    state.mode = mode;
-    state.lessonKey = null;
-    state.chapterQuiz = null;
-    state.quizSession = null;
-    if (mode === 'card' || mode === 'quiz') {
-      state.deck = CARDS.slice();
-      state.cardFocusIds = null;
-      state.cardDeckTitle = '';
-      state.idx = 0;
-      state.flipped = false;
-    }
-    if (mode === 'study' && parts[1] && LESSONS.some(function (lesson) { return lesson.key === parts[1]; })) {
-      state.lessonKey = parts[1];
-      state.lastLesson = parts[1];
-    }
-    if (mode === 'glossary' && parts[1]) state.glossQuery = parts.slice(1).join('/');
-    if (mode === 'card' && parts[1]) {
-      var id = Number(parts[1]);
-      var found = CARDS.findIndex(function (card) { return card.id === id; });
-      if (found !== -1) state.idx = found;
-    }
-  }
-
   /* ---------- 초기화 ---------- */
   window.addEventListener('resize', syncChromeHeights);
-  window.addEventListener('hashchange', function () {
-    applyInitialRoute();
-    if (state.mode === 'quiz') resetQuizQuestion();
-    render();
-    window.scrollTo(0, 0);
-  });
   syncChromeHeights();
 
   els.modeSwitch.querySelectorAll('.mode-btn').forEach(function (btn) {
     btn.addEventListener('click', function () { switchMode(btn.dataset.mode); });
   });
   document.getElementById('settings-btn').addEventListener('click', openSettings);
-  document.getElementById('global-search-btn').addEventListener('click', openGlobalSearch);
-  document.getElementById('brand-home').addEventListener('click', function () { switchMode('home'); });
 
   // 정적 아이콘 채우기 (nav/브랜드)
   document.querySelectorAll('[data-icon]').forEach(function (el) {
     el.innerHTML = icon(el.dataset.icon);
   });
 
-  applyInitialRoute();
   resetQuizQuestion();
   render();
-
-  if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
-    window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js').catch(function () { /* 오프라인 기능 미지원 환경 */ });
-    });
-  }
 })();
